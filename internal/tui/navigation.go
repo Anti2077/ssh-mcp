@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"image/color"
 	"strings"
 	"time"
 
@@ -23,7 +22,9 @@ func (m *Model) label(zh, en string) string {
 }
 func (m *Model) menuRow(label string, selected bool) string {
 	if selected {
-		return lipgloss.NewStyle().Bold(true).Foreground(color.RGBA{R: 56, G: 189, B: 248, A: 255}).Render("› " + label)
+		// Contrast follows the terminal palette; the arrow still identifies
+		// selection when ANSI styling is unavailable (Refactoring UI §5.7).
+		return lipgloss.NewStyle().Bold(true).Reverse(true).Render("▶ " + label + " ")
 	}
 	return "  " + label
 }
@@ -78,18 +79,8 @@ func (m *Model) navigationKey(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 	}
 	if m.screen == screenTargets {
 		switch key {
-		case "tab":
-			if m.actionFocus {
-				m.targetAction = (m.targetAction + 1) % 6
-			}
-			m.actionFocus = true
-			return true, nil
-		case "shift+tab":
-			if !m.actionFocus {
-				m.targetAction = 0
-			}
-			m.actionFocus = true
-			m.targetAction = (m.targetAction + 5) % 6
+		case "tab", "shift+tab":
+			m.actionFocus = !m.actionFocus
 			return true, nil
 		case "left":
 			m.actionFocus = true
@@ -100,7 +91,19 @@ func (m *Model) navigationKey(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 			m.targetAction = (m.targetAction + 1) % 6
 			return true, nil
 		case "up", "down":
-			m.actionFocus = false
+			if m.actionFocus {
+				delta := 1
+				if key == "up" {
+					delta = -1
+				}
+				m.targetAction = (m.targetAction + delta + 6) % 6
+				return true, nil
+			}
+		case "esc":
+			if m.actionFocus {
+				m.actionFocus = false
+				return true, nil
+			}
 		case "enter":
 			if m.actionFocus {
 				return true, m.performTargetAction()
@@ -109,7 +112,7 @@ func (m *Model) navigationKey(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 	}
 	if m.screen == screenFingerprintConfirm || m.screen == screenTargetDeleteConfirm {
 		switch key {
-		case "left", "right", "tab", "shift+tab":
+		case "up", "down", "left", "right", "tab", "shift+tab":
 			m.confirmAccept = !m.confirmAccept
 			return true, nil
 		case "enter":
@@ -127,24 +130,33 @@ func (m *Model) navigationKey(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 }
 func (m *Model) targetToolbar() string {
 	labels := []string{m.label("新增 SSH", "Add SSH"), m.label("新增数据库", "Add database"), m.label("编辑", "Edit"), m.label("启用 / 停用", "Enable / disable"), m.label("删除", "Delete"), m.label("刷新", "Refresh")}
-	var rows []string
-	row := ""
+	rows := []string{m.label("操作菜单", "Actions")}
+	var actions []string
 	for i, label := range labels {
-		if m.actionFocus && i == m.targetAction {
-			label = "[ " + label + " ]"
-		}
-		if row != "" && lipgloss.Width(row)+2+lipgloss.Width(label) > m.contentWidth() {
-			rows = append(rows, row)
-			row = ""
-		}
-		if row != "" {
-			row += "  "
-		}
-		row += label
+		actions = append(actions, m.menuRow(label, m.actionFocus && i == m.targetAction))
 	}
-	rows = append(rows, row)
-	lines := strings.Join(rows, "\n")
-	return lines + "\n" + m.label("↑↓ 选择目标 · Tab / ←→ 选择操作 · Enter 确认 · Esc 返回", "↑↓ target · Tab / ←→ action · Enter confirm · Esc back")
+	limit := 0
+	if m.height > 0 {
+		limit = max(1, m.height-11-min(max(1, m.targetCount()), 4))
+		if m.notice != "" {
+			limit = max(1, limit-2)
+		}
+		if m.connectionNotice != "" {
+			limit = max(1, limit-2)
+		}
+	}
+	rows = append(rows, selectedRows(actions, m.targetAction, limit)...)
+	help := m.label("↑↓ 选择目标 · Tab 操作菜单 · Enter 编辑 · Esc 返回", "↑↓ target · Tab actions · Enter edit · Esc back")
+	if m.actionFocus {
+		help = m.label("↑↓ 选择操作 · Enter 执行 · Tab / Esc 返回目标", "↑↓ action · Enter run · Tab / Esc targets")
+	}
+	if m.isCompactLayout() {
+		help = m.label("↑↓ 选目标 · Tab 操作\nEnter 编辑 · Esc 返回", "↑↓ target · Tab actions\nEnter edit · Esc back")
+		if m.actionFocus {
+			help = m.label("↑↓ 选操作 · Enter 执行\nTab / Esc 返回目标", "↑↓ action · Enter run\nTab / Esc targets")
+		}
+	}
+	return strings.Join(append(rows, "", help), "\n")
 }
 func (m *Model) performTargetAction() tea.Cmd {
 	switch m.targetAction {
@@ -165,10 +177,7 @@ func (m *Model) performTargetAction() tea.Cmd {
 }
 func (m *Model) confirmationButtons(accept string) string {
 	cancel := m.label("返回", "Back")
-	if m.confirmAccept {
-		return cancel + "    [ " + accept + " ]\n" + m.label("←→ 选择 · Enter 确认", "←→ select · Enter confirm")
-	}
-	return "[ " + cancel + " ]    " + accept + "\n" + m.label("←→ 选择 · Enter 确认", "←→ select · Enter confirm")
+	return m.menuRow(cancel, !m.confirmAccept) + "\n" + m.menuRow(accept, m.confirmAccept) + "\n\n" + m.label("↑↓ / Tab 选择 · Enter 确认", "↑↓ / Tab select · Enter confirm")
 }
 func (m *Model) formButtons() string {
 	save := m.label("验证并保存", "Verify and save")
@@ -176,17 +185,46 @@ func (m *Model) formButtons() string {
 		save = m.label("确认执行", "Confirm action")
 	}
 	cancel := m.label("取消", "Cancel")
-	if m.formButton == 1 {
-		save = "[ " + save + " ]"
+	return m.menuRow(save, m.formButton == 1) + "\n" + m.menuRow(cancel, m.formButton == 2)
+}
+
+func (m *Model) choiceValue(index int) (string, bool) {
+	if m.form == nil || m.form.kind != formSSH {
+		return "", false
 	}
-	if m.formButton == 2 {
-		cancel = "[ " + cancel + " ]"
+	switch index {
+	case 8:
+		password, key := "● ", "○ "
+		if m.form.fields[index].value == "private_key" {
+			password, key = key, password
+		}
+		return password + m.label("密码登录", "Password") + "    " + key + m.label("私钥登录", "Private key"), true
+	case 7:
+		enabled, disabled := "○ ", "● "
+		if m.form.fields[index].value == "true" {
+			enabled, disabled = disabled, enabled
+		}
+		return enabled + m.label("允许", "Allow") + "    " + disabled + m.label("禁止", "Deny"), true
 	}
-	return save + "    " + cancel
+	return "", false
+}
+
+func (m *Model) choiceLabel(index int) string {
+	if index == 7 {
+		return m.label("文件操作权限", "File operations")
+	}
+	return m.form.fields[index].label
 }
 func (m *Model) formNavigation(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 	if m.form == nil {
 		return false, nil
+	}
+	if _, choice := m.choiceValue(m.form.index); choice && m.formButton == 0 {
+		switch key {
+		case "left", "right", " ", "tab", "shift+tab", "up", "down", "enter", "esc", "ctrl+s":
+		default:
+			return true, nil
+		}
 	}
 	if key == "enter" && m.formButton == 0 || key == "down" || key == "up" || key == "tab" || key == "shift+tab" {
 		m.saveCurrentField()
@@ -271,7 +309,7 @@ func (m *Model) beginKeyUnlock(path string) {
 	_ = m.input.Focus()
 }
 func (m *Model) loadStatusForKey() tea.Cmd {
-	return m.call("key_status", "status", nil, &control.Status{})
+	return m.callPendingTarget("key_status", "status", nil, &control.Status{})
 }
 func (m *Model) handleKeyUnlock(message tea.KeyMsg, key string) tea.Cmd {
 	if key == "esc" {
@@ -288,6 +326,9 @@ func (m *Model) handleKeyUnlock(message tea.KeyMsg, key string) tea.Cmd {
 			Passphrase string `json:"passphrase"`
 		}{m.keyUnlockPath, m.input.Value()}
 		m.input.SetValue("")
+		if m.pending != nil {
+			return m.callPendingTarget("key_unlocked", "ssh.unlock_key", params, &struct{}{})
+		}
 		return m.call("key_unlocked", "ssh.unlock_key", params, &struct{}{})
 	}
 	return m.updateInput(message)

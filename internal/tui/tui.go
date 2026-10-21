@@ -89,6 +89,8 @@ type maintenanceForm struct {
 }
 
 type pendingTargetSave struct {
+	requestID   uint64
+	busy        bool
 	testMethod  string
 	testParams  any
 	saveMethod  string
@@ -108,18 +110,20 @@ type Model struct {
 	width  int
 	height int
 
-	screen        screen
-	status        control.Status
-	targets       control.TargetsResult
-	selected      int
-	menuIndex     int
-	targetAction  int
-	actionFocus   bool
-	confirmAccept bool
-	keyUnlockPath string
-	dismissedKey  string
-	formButton    int
-	notice        string
+	screen            screen
+	status            control.Status
+	targets           control.TargetsResult
+	selected          int
+	menuIndex         int
+	targetAction      int
+	actionFocus       bool
+	confirmAccept     bool
+	keyUnlockPath     string
+	dismissedKey      string
+	formButton        int
+	notice            string
+	connectionNotice  string
+	nextTargetRequest uint64
 
 	input       textinput.Model
 	form        *targetForm
@@ -132,9 +136,10 @@ type Model struct {
 }
 
 type rpcMsg struct {
-	action string
-	value  any
-	err    error
+	targetRequest uint64
+	action        string
+	value         any
+	err           error
 }
 
 func NewModel(client Caller) *Model {
@@ -221,6 +226,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(message tea.KeyMsg) tea.Cmd {
 	key := message.String()
+	if m.pending != nil && m.pending.busy && key != "ctrl+c" {
+		return nil
+	}
 	if handled, cmd := m.navigationKey(message, key); handled {
 		return cmd
 	}
@@ -366,6 +374,9 @@ func (m *Model) handleFingerprintConfirmation(key string) tea.Cmd {
 		m.screen = screenTargets
 		return nil
 	}
+	if m.pending.busy {
+		return nil
+	}
 	switch key {
 	case "y":
 		params, ok := confirmedFingerprintParams(m.pending.testParams, m.pending.fingerprint)
@@ -374,7 +385,7 @@ func (m *Model) handleFingerprintConfirmation(key string) tea.Cmd {
 			return nil
 		}
 		m.pending.testParams = params
-		return m.call("target_tested", m.pending.testMethod, params, &control.SSHTestResult{})
+		return m.callPendingTarget("target_tested", m.pending.testMethod, params, &control.SSHTestResult{})
 	case "n", "esc":
 		m.clearPendingTarget()
 		m.screen = screenForm
@@ -432,6 +443,14 @@ func isPasteShortcut(key tea.KeyPressMsg) bool {
 // character, so anything that is not a plausible single field value is
 // rejected with a notice and leaves the input untouched.
 func (m *Model) handlePaste(content string) tea.Cmd {
+	if m.pending != nil && m.pending.busy {
+		return nil
+	}
+	if m.screen == screenForm && m.form != nil {
+		if _, choice := m.choiceValue(m.form.index); choice {
+			return nil
+		}
+	}
 	switch m.screen {
 	case screenUnlock, screenForm, screenMaintenance, screenKeyUnlock:
 	default:
@@ -494,8 +513,23 @@ func (m *Model) activeSecretField() bool {
 }
 
 func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
+	if message.targetRequest != 0 {
+		if m.pending == nil || m.pending.requestID != message.targetRequest || !m.pending.busy {
+			return nil
+		}
+		m.pending.busy = false
+	}
+	// Background health checks have their own notice and cannot replace the
+	// result of an explicit validation or save operation.
+	if message.action == "status" {
+		if message.err != nil {
+			m.connectionNotice = m.msg.LocalControlErrorNotice("status", message.err)
+			return nil
+		}
+		m.connectionNotice = ""
+	}
 	if message.err != nil {
-		if message.action == "target_tested" || message.action == "database_tested" {
+		if message.action == "target_tested" || message.action == "database_tested" || message.action == "target_saved" || message.action == "key_status" {
 			m.clearPendingTarget()
 			if m.screen == screenKeyUnlock && m.form != nil {
 				m.screen = screenForm
@@ -539,7 +573,7 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 		m.keyUnlockPath = ""
 		m.dismissedKey = ""
 		if m.pending != nil {
-			return m.call("target_tested", m.pending.testMethod, m.pending.testParams, &control.SSHTestResult{})
+			return m.callPendingTarget("target_tested", m.pending.testMethod, m.pending.testParams, &control.SSHTestResult{})
 		}
 		m.screen = screenDashboard
 		m.notice = m.label("密钥已解锁，可以重新发起操作。", "Key unlocked. Submit a new operation.")
@@ -564,6 +598,7 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 		m.clearPendingTarget()
 		m.clearForm()
 		m.screen = screenTargets
+		m.notice = m.label("目标验证通过，配置已保存。", "Target verified; configuration saved.")
 		return m.loadTargets()
 	case "target_toggled":
 		return m.loadTargets()
@@ -627,8 +662,14 @@ func localControlErrorNotice(action string, err error) string {
 
 func (m *Model) View() tea.View {
 	lines := []string{m.header(), ""}
+	if m.connectionNotice != "" {
+		lines = append(lines, m.connectionNotice, "")
+	}
 	if m.notice != "" {
 		lines = append(lines, m.notice, "")
+	}
+	if m.pending != nil && m.pending.busy {
+		lines = append(lines, m.label("正在验证并保存，请稍候……", "Verifying and saving, please wait…"), "")
 	}
 	switch m.screen {
 	case screenKeyUnlock:
@@ -673,11 +714,22 @@ func (m *Model) inputCursor() *tea.Cursor {
 	if (m.screen == screenForm || m.screen == screenMaintenance) && m.formButton > 0 {
 		return nil
 	}
+	if m.screen == screenForm && m.form != nil {
+		if _, choice := m.choiceValue(m.form.index); choice {
+			return nil
+		}
+	}
 	cursor := m.input.Cursor()
 	if cursor == nil {
 		return nil
 	}
 	base := 2
+	if m.connectionNotice != "" {
+		base += 2
+	}
+	if m.pending != nil && m.pending.busy {
+		base += 2
+	}
 	if m.notice != "" {
 		base += 2
 	}
@@ -865,12 +917,24 @@ func (m *Model) renderForm() []string {
 	if m.isCompactLayout() {
 		field := m.form.fields[m.form.index]
 		lines = append(lines, fmt.Sprintf("%d/%d  %s", m.visibleFieldPosition()+1, len(m.visibleFields()), compactText(field.label, max(1, m.contentWidth()-6))))
-		lines = append(lines, inputLinePrefix+m.input.View())
+		if value, choice := m.choiceValue(m.form.index); choice {
+			lines = append(lines, m.menuRow(value, m.formButton == 0))
+		} else {
+			lines = append(lines, inputLinePrefix+m.input.View())
+		}
 		return append(lines, "", m.formButtons(), m.label("Tab 选择 · Enter 确认 · Esc 返回", "Tab select · Enter confirm · Esc back"))
 	}
 	for _, index := range m.visibleFields() {
 		field := m.form.fields[index]
 		value := field.value
+		if choice, ok := m.choiceValue(index); ok {
+			value = choice
+			lines = append(lines, m.menuRow(m.choiceLabel(index)+m.msg.FieldSeparator+value, index == m.form.index && m.formButton == 0))
+			if index == m.form.index && m.formButton == 0 {
+				lines = append(lines, m.label("  ← → 切换选项 · Tab 下一个字段", "  ← → change option · Tab next field"))
+			}
+			continue
+		}
 		if field.secret && value != "" {
 			value = m.msg.SecretMasked
 		}
@@ -1147,7 +1211,8 @@ func commaSeparated(value string) []string {
 
 func (m *Model) beginTargetTest(testMethod string, testParams any, saveMethod string, saveParams any) tea.Cmd {
 	m.pending = &pendingTargetSave{testMethod: testMethod, testParams: testParams, saveMethod: saveMethod, saveParams: saveParams}
-	return m.call("target_tested", testMethod, testParams, &control.SSHTestResult{})
+	m.notice = ""
+	return m.callPendingTarget("target_tested", testMethod, testParams, &control.SSHTestResult{})
 }
 
 func (m *Model) beginDatabaseTest(params control.UpsertDatabaseInstanceParams) tea.Cmd {
@@ -1155,7 +1220,8 @@ func (m *Model) beginDatabaseTest(params control.UpsertDatabaseInstanceParams) t
 		Instance: params.Instance, ReadPassword: params.ReadPassword, WritePassword: params.WritePassword,
 	}
 	m.pending = &pendingTargetSave{testMethod: "database.test_target", testParams: testParams, saveMethod: "target.upsert_database", saveParams: params}
-	return m.call("database_tested", "database.test_target", testParams, &control.DatabaseTestResult{})
+	m.notice = ""
+	return m.callPendingTarget("database_tested", "database.test_target", testParams, &control.DatabaseTestResult{})
 }
 
 func (m *Model) savePendingTarget() tea.Cmd {
@@ -1163,7 +1229,24 @@ func (m *Model) savePendingTarget() tea.Cmd {
 		m.notice = m.msg.PendingTargetNotFound
 		return nil
 	}
-	return m.call("target_saved", m.pending.saveMethod, m.pending.saveParams, &struct{}{})
+	return m.callPendingTarget("target_saved", m.pending.saveMethod, m.pending.saveParams, &struct{}{})
+}
+
+// Bind every stage to its pending operation. Repeated keys cannot dispatch a
+// second request, and late replies cannot overwrite a newer or completed save.
+func (m *Model) callPendingTarget(action, method string, params, output any) tea.Cmd {
+	if m.pending == nil || m.pending.busy {
+		return nil
+	}
+	m.nextTargetRequest++
+	id := m.nextTargetRequest
+	m.pending.requestID, m.pending.busy = id, true
+	command := m.call(action, method, params, output)
+	return func() tea.Msg {
+		message := command().(rpcMsg)
+		message.targetRequest = id
+		return message
+	}
 }
 
 func confirmedFingerprintParams(params any, fingerprint string) (any, bool) {
@@ -1331,6 +1414,9 @@ func (m *Model) clampSelected(count int) {
 
 func (m *Model) targetMarker(index int) string {
 	if index == m.selected {
+		if m.screen == screenTargets && m.actionFocus {
+			return "● "
+		}
 		return "> "
 	}
 	return "  "

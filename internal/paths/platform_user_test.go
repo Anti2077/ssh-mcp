@@ -16,9 +16,7 @@ func TestUserPlatformRootsUseExecutableDirectory(t *testing.T) {
 	if want := filepath.Dir(executable); roots.ConfigDir != want {
 		t.Errorf("ConfigDir = %q, want executable directory %q", roots.ConfigDir, want)
 	}
-	if want := filepath.Join(filepath.Dir(executable), runtimeDirectoryName); roots.RuntimeDir != want {
-		t.Errorf("RuntimeDir = %q, want %q", roots.RuntimeDir, want)
-	}
+	assertDefaultRuntimeDirectory(t, executable, roots.RuntimeDir)
 	assertDirectory(t, roots.ConfigDir)
 	assertDirectory(t, roots.RuntimeDir)
 }

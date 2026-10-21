@@ -408,6 +408,8 @@ func localControlErrorNoticeZH(action string, err error) string {
 	}
 
 	switch action {
+	case "status":
+		return "本地服务状态暂时无法刷新，请检查 daemon 是否运行；此提示不表示目标保存失败。"
 	case "target_tested":
 		return "SSH 目标验证未完成，配置未保存。请检查输入、网络、端口、账号密码和主机指纹后重试。"
 	case "database_tested":
@@ -458,6 +460,8 @@ func localControlErrorNoticeEN(action string, err error) string {
 	}
 
 	switch action {
+	case "status":
+		return "Could not refresh local service status. Check that the daemon is running; this does not indicate a target save failure."
 	case "target_tested":
 		return "SSH target validation incomplete; not saved. Check input, network, credentials, and host fingerprint."
 	case "database_tested":

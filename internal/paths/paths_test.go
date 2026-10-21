@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -29,9 +30,29 @@ func TestDefaultRootsUseExecutableDirectory(t *testing.T) {
 	if want := filepath.Dir(executable); roots.ConfigDir != want {
 		t.Errorf("ConfigDir = %q, want executable directory %q", roots.ConfigDir, want)
 	}
-	if want := filepath.Join(filepath.Dir(executable), runtimeDirectoryName); roots.RuntimeDir != want {
-		t.Errorf("RuntimeDir = %q, want %q", roots.RuntimeDir, want)
+	assertDefaultRuntimeDirectory(t, executable, roots.RuntimeDir)
+}
+
+func assertDefaultRuntimeDirectory(t *testing.T, executable, actual string) {
+	t.Helper()
+	want := filepath.Join(filepath.Dir(executable), runtimeDirectoryName)
+	if runtime.GOOS != "darwin" || len(filepath.Join(want, "control.sock")) < 104 {
+		if actual != want {
+			t.Errorf("RuntimeDir = %q, want %q", actual, want)
+		}
+		return
 	}
+	if !strings.HasPrefix(actual, "/private/tmp/ssh-mcp-") || len(filepath.Join(actual, "control.sock")) >= 104 {
+		t.Errorf("RuntimeDir = %q, want a short macOS socket directory", actual)
+	}
+	info, err := os.Lstat(actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("runtime permissions = %04o, want 0700", info.Mode().Perm())
+	}
+	t.Cleanup(func() { _ = os.Remove(actual) })
 }
 
 func TestEnsureRegularFileAcceptsExistingFile(t *testing.T) {

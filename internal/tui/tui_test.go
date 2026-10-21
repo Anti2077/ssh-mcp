@@ -287,7 +287,7 @@ func TestSSHFormDefaultsFileOperationsToTrueForNewTarget(t *testing.T) {
 	model := NewModel(nil)
 	model.beginSSHForm(store.SSHTarget{Mode: store.SSHDirect, Enabled: true, AllowFileOperations: true})
 	view := model.View().Content
-	if !strings.Contains(view, "允许文件读写（true/false）：true") {
+	if !strings.Contains(view, "文件操作权限：● 允许    ○ 禁止") {
 		t.Fatalf("new target does not render file capability as true: %s", view)
 	}
 }
