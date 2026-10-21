@@ -175,6 +175,7 @@ var migrations = []migration{
 		apply:   removeLegacySSHFileConfiguration,
 	},
 	{version: 18, apply: addSSHAuthentication},
+	{version: 19, apply: addPermissionTiers},
 }
 
 func addSSHFileReadRoots(ctx context.Context, tx *sql.Tx) error {
@@ -518,4 +519,18 @@ func addSSHAuthentication(ctx context.Context, tx *sql.Tx) error {
 		{"auth_method", "TEXT NOT NULL DEFAULT 'password'"},
 		{"private_key_path", "TEXT NOT NULL DEFAULT ''"},
 	})
+}
+
+func addPermissionTiers(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []string{"ssh_targets", "database_instances"} {
+		if err := addColumnsIfTableExists(ctx, tx, table, []struct {
+			name       string
+			definition string
+		}{
+			{"permission_tier", "TEXT NOT NULL DEFAULT 'confirm' CHECK(permission_tier IN ('read_only', 'confirm', 'full'))"},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

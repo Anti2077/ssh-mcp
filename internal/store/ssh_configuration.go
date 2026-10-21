@@ -123,10 +123,10 @@ func loadSSHTargetTx(ctx context.Context, tx *sql.Tx, ip string) (SSHTarget, boo
 	err := tx.QueryRowContext(ctx, `
 		SELECT ip, connection_mode, ssh_port, COALESCE(login_username, ''),
 			COALESCE(credential_id, ''), command_blacklist_patterns, allow_file_operations,
-			remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path
+			remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path, permission_tier
 		FROM ssh_targets WHERE ip = ? AND connection_mode = 'direct'`, ip).Scan(
 		&target.IP, &target.Mode, &target.SSHPort, &target.LoginUsername, &target.CredentialID,
-		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath)
+		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath, &target.PermissionTier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SSHTarget{}, false, nil
 	}

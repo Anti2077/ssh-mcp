@@ -1,5 +1,7 @@
 # MCP 工具参考
 
+所有执行工具均服从目标的 `permission_tier`。`describe_target_capability` 和 `list_targets` 会返回该字段；确认档的非只读操作在本地 TUI 等待一次性确认，MCP 不提供批准工具或参数。详见[三档权限](permissions.md)。
+
 `ssh-mcp` 通过 stdio MCP server 提供 11 个工具。工具只能使用已登记目标；MCP 客户端不能新增目标、修改凭据或读取主密码。调用参数应是一个与 schema 完全匹配的 JSON 对象，不要在参数中嵌入命令围栏或额外文本。
 
 ## 工具总览

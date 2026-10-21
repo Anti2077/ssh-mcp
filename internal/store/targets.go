@@ -47,8 +47,8 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 		INSERT INTO ssh_targets (
 			ip, connection_mode, ssh_port, login_username, credential_id, auth_method, private_key_path,
 			command_blacklist_patterns, allow_file_operations,
-			remote_platform, description, environment, enabled, identity_status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			remote_platform, description, environment, enabled, identity_status, permission_tier, created_at, updated_at
+		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			connection_mode = excluded.connection_mode,
 			ssh_port = excluded.ssh_port,
@@ -63,6 +63,7 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 			environment = excluded.environment,
 			enabled = excluded.enabled,
 			identity_status = excluded.identity_status,
+			permission_tier = excluded.permission_tier,
 			revision = ssh_targets.revision + CASE WHEN
 				ssh_targets.connection_mode IS NOT excluded.connection_mode OR
 				ssh_targets.ssh_port IS NOT excluded.ssh_port OR
@@ -74,11 +75,12 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 				ssh_targets.allow_file_operations IS NOT excluded.allow_file_operations OR
 				ssh_targets.remote_platform IS NOT excluded.remote_platform OR
 				ssh_targets.enabled IS NOT excluded.enabled OR
-				ssh_targets.identity_status IS NOT excluded.identity_status
+				ssh_targets.identity_status IS NOT excluded.identity_status OR
+				ssh_targets.permission_tier IS NOT excluded.permission_tier
 			THEN 1 ELSE 0 END,
 			updated_at = excluded.updated_at`,
 		target.IP, target.Mode, target.SSHPort, target.LoginUsername, target.CredentialID, target.AuthMethod, target.PrivateKeyPath,
-		blacklistPatterns, boolToInt(target.AllowFileOperations), target.RemotePlatform, target.Description, target.Environment, enabled, target.IdentityStatus, nowUnix(), nowUnix())
+		blacklistPatterns, boolToInt(target.AllowFileOperations), target.RemotePlatform, target.Description, target.Environment, enabled, target.IdentityStatus, target.PermissionTier, nowUnix(), nowUnix())
 	if err != nil {
 		return mapConstraintError(err)
 	}
@@ -89,7 +91,7 @@ func (s *Store) ListSSHTargets(ctx context.Context) ([]SSHTarget, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT ip, connection_mode, ssh_port, COALESCE(login_username, ''),
 				COALESCE(credential_id, ''), command_blacklist_patterns, allow_file_operations,
-				remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path
+				remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path, permission_tier
 		FROM ssh_targets WHERE connection_mode = 'direct' ORDER BY ip`)
 	if err != nil {
 		return nil, fmt.Errorf("list SSH targets: %w", err)
@@ -103,7 +105,7 @@ func (s *Store) ListSSHTargets(ctx context.Context) ([]SSHTarget, error) {
 		var blacklistPatterns string
 		var allowFileOperations int
 		if err := rows.Scan(&target.IP, &target.Mode, &target.SSHPort, &target.LoginUsername,
-			&target.CredentialID, &blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath); err != nil {
+			&target.CredentialID, &blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath, &target.PermissionTier); err != nil {
 			return nil, fmt.Errorf("scan SSH target: %w", err)
 		}
 		if err := unmarshalCommandBlacklistPatterns(blacklistPatterns, &target.CommandBlacklistPatterns); err != nil {
@@ -254,8 +256,8 @@ func upsertDatabaseInstanceTx(ctx context.Context, tx *sql.Tx, instance Database
 		INSERT INTO database_instances (
 			host, port, engine, default_database, read_username, write_username,
 			read_credential_id, write_credential_id, description, environment,
-			transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, permission_tier, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(host, port) DO UPDATE SET
 			engine = excluded.engine,
 			default_database = excluded.default_database,
@@ -271,6 +273,7 @@ func upsertDatabaseInstanceTx(ctx context.Context, tx *sql.Tx, instance Database
 			enabled = excluded.enabled,
 			database_major_version = excluded.database_major_version,
 			version_status = excluded.version_status,
+			permission_tier = excluded.permission_tier,
 			revision = database_instances.revision + CASE WHEN
 				database_instances.engine IS NOT excluded.engine OR
 				database_instances.default_database IS NOT excluded.default_database OR
@@ -280,14 +283,15 @@ func upsertDatabaseInstanceTx(ctx context.Context, tx *sql.Tx, instance Database
 				database_instances.write_credential_id IS NOT excluded.write_credential_id OR
 				database_instances.transport_policy IS NOT excluded.transport_policy OR
 				database_instances.tls_ca_path IS NOT excluded.tls_ca_path OR
-				database_instances.enabled IS NOT excluded.enabled
+				database_instances.enabled IS NOT excluded.enabled OR
+				database_instances.permission_tier IS NOT excluded.permission_tier
 			THEN 1 ELSE 0 END,
 			updated_at = excluded.updated_at`,
 		instance.Host, instance.Port, instance.Engine, instance.DefaultDatabase,
 		instance.ReadUsername, instance.WriteUsername, instance.ReadCredentialID,
 		instance.WriteCredentialID, instance.Description, instance.Environment,
 		instance.TransportSecurity, instance.TransportPolicy, instance.TLSCAPath,
-		boolToInt(instance.Enabled), instance.MajorVersion, instance.VersionStatus, nowUnix(), nowUnix())
+		boolToInt(instance.Enabled), instance.MajorVersion, instance.VersionStatus, instance.PermissionTier, nowUnix(), nowUnix())
 	if err != nil {
 		return mapConstraintError(err)
 	}
@@ -298,7 +302,7 @@ func (s *Store) ListDatabaseInstances(ctx context.Context) ([]DatabaseInstance, 
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT host, port, engine, default_database, read_username, write_username,
 			COALESCE(read_credential_id, ''), COALESCE(write_credential_id, ''),
-			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision
+			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision, permission_tier
 		FROM database_instances ORDER BY host, port`)
 	if err != nil {
 		return nil, fmt.Errorf("list database instances: %w", err)
@@ -312,7 +316,7 @@ func (s *Store) ListDatabaseInstances(ctx context.Context) ([]DatabaseInstance, 
 		if err := rows.Scan(&instance.Host, &instance.Port, &instance.Engine, &instance.DefaultDatabase,
 			&instance.ReadUsername, &instance.WriteUsername, &instance.ReadCredentialID,
 			&instance.WriteCredentialID, &instance.Description, &instance.Environment,
-			&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision); err != nil {
+			&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision, &instance.PermissionTier); err != nil {
 			return nil, fmt.Errorf("scan database instance: %w", err)
 		}
 		instance.Enabled = enabled != 0
@@ -482,6 +486,10 @@ func normalizeSSHTargetFields(target SSHTarget, requireCredential bool) (SSHTarg
 	if err != nil {
 		return SSHTarget{}, ErrInvalidTarget
 	}
+	target.PermissionTier = EffectivePermissionTier(target.PermissionTier)
+	if !ValidPermissionTier(target.PermissionTier) {
+		return SSHTarget{}, ErrInvalidTarget
+	}
 	target.IP = ip
 	target.RemotePlatform = platform
 	target.CommandBlacklistPatterns = blacklistPatterns
@@ -566,6 +574,10 @@ func normalizeDatabaseInstanceConfiguration(instance DatabaseInstance) (Database
 }
 
 func normalizeDatabaseInstanceFields(instance DatabaseInstance, requireCredentials bool) (DatabaseInstance, error) {
+	instance.PermissionTier = EffectivePermissionTier(instance.PermissionTier)
+	if !ValidPermissionTier(instance.PermissionTier) {
+		return DatabaseInstance{}, ErrInvalidTarget
+	}
 	host, err := canonicalIP(instance.Host)
 	instance.ReadUsername = strings.TrimSpace(instance.ReadUsername)
 	instance.WriteUsername = strings.TrimSpace(instance.WriteUsername)

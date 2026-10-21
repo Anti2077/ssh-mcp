@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"ssh-mcp/internal/approval"
 	"ssh-mcp/internal/auditlog"
 	"ssh-mcp/internal/bridge"
 	"ssh-mcp/internal/clock"
@@ -109,6 +110,7 @@ type Runtime struct {
 	store             *store.Store
 	audit             *auditlog.Logger
 	control           *control.Service
+	approvals         *approval.Broker
 	sessions          *session.Manager
 	runner            *runner.Engine
 	workSessions      *worksession.Store
@@ -207,9 +209,10 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	dispatchBarrier := runner.NewDispatchBarrier()
 	auditUser := currentAuditUser()
 	audit := auditlog.New(filepath.Join(roots.ConfigDir, auditlog.FileName))
+	approvals := approval.New()
 	controlService := control.NewService(credentialStore, manager, control.WithTargetAuthorizationRevoker(targetAuthorizationRevoker{
 		workSessions: workSessions, sshConnections: ssh, databaseAuthorizer: databaseAuthorizer,
-	}), control.WithSSHService(ssh), control.WithAuditor(audit), control.WithAuditActor(auditlog.Actor{User: auditUser, Source: "tui-control"}), control.WithDispatchLeaseAcquirer(func() control.DispatchLease {
+	}), control.WithApprovals(approvals), control.WithSSHService(ssh), control.WithAuditor(audit), control.WithAuditActor(auditlog.Actor{User: auditUser, Source: "tui-control"}), control.WithDispatchLeaseAcquirer(func() control.DispatchLease {
 		return dispatchBarrier.Acquire()
 	}))
 	socketPath := filepath.Join(roots.RuntimeDir, controlSockName)
@@ -220,6 +223,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		store:             credentialStore,
 		audit:             audit,
 		control:           controlService,
+		approvals:         approvals,
 		sessions:          manager,
 		ssh:               ssh,
 		socketPath:        socketPath,
@@ -249,7 +253,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	ssh.SetKeyUnlockOpener(runtime.requestTUI)
 	runtime.workSessions = workSessions
 	runtime.runner = runner.New(runner.Dependencies{
-		Targets: credentialStore, Sessions: manager,
+		Approvals: approvals, Targets: credentialStore, Sessions: manager,
 		SSH: ssh, FileReader: ssh, Deployer: ssh,
 		Database:     dbservice.New(credentialStore, dbtransport.NativeTransport{}),
 		WorkSessions: workSessions, DatabaseAuthorizer: databaseAuthorizer, DispatchBarrier: dispatchBarrier, Audit: runtime.audit,
@@ -259,6 +263,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		SocketPath: bridgeSocketPath,
 		Handler:    bridge.HandlerFunc(runtime.handleBridge),
 		SessionClosed: func(session bridge.Session) {
+			approvals.CancelOwner(session.OwnerID)
 			runtime.clearBridgeOwner(session.OwnerID)
 		},
 	})
@@ -358,6 +363,7 @@ func (r *Runtime) auditActor(session bridge.Session) auditlog.Actor {
 }
 
 func (r *Runtime) Close() error {
+	r.approvals.CancelAll()
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -577,6 +583,7 @@ func (r *Runtime) setTUIActivity(now time.Time) {
 }
 
 func (r *Runtime) clearTUIActivity(now time.Time) {
+	r.approvals.CancelAll()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	token := r.controlToken
@@ -598,6 +605,7 @@ func (r *Runtime) hasActiveTUI(now time.Time) bool {
 	if now.Sub(r.tuiLastHeartbeat) <= 10*time.Second {
 		return true
 	}
+	r.approvals.CancelAll()
 	token := r.controlToken
 	r.tuiLaunching = false
 	r.tuiActive = false
@@ -623,6 +631,9 @@ func (r *Runtime) handleBridge(ctx context.Context, bridgeSession bridge.Session
 			active--
 		}
 		localStatus := status.(control.Status)
+		// Pending operations and their control-plane IDs belong only to the
+		// authenticated TUI, never to an execution bridge's status response.
+		localStatus.PendingApprovals = nil
 		localStatus.PendingKeys = nil // Local key paths belong only to the authenticated console.
 		return DaemonStatus{Running: true, Control: localStatus, ActiveBridgeSessions: active}, nil
 	case bridgeMethodPrepareForceStop:

@@ -112,8 +112,10 @@ func TestArrowAndTabJourneyRegistersPrivateKeyTarget(t *testing.T) {
 		t.Fatal("Add SSH not activated")
 	}
 	values := map[int]string{0: "192.0.2.10", 1: "22", 2: "ops", 9: "/tmp/test-key", 4: "", 5: "test host", 6: "test", 7: "true"}
-	for range 9 {
-		if model.form.index == 8 {
+	for range 10 {
+		if model.form.index == 10 {
+			// Retain the default confirmation tier.
+		} else if model.form.index == 8 {
 			press(model, tea.KeyRight)
 		} else {
 			model.input.SetValue(values[model.form.index])

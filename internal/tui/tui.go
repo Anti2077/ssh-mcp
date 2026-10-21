@@ -16,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/clipperhouse/displaywidth"
 
+	"ssh-mcp/internal/approval"
 	"ssh-mcp/internal/control"
 	"ssh-mcp/internal/ipc"
 	"ssh-mcp/internal/store"
@@ -48,6 +49,7 @@ const (
 	screenTargetDeleteConfirm
 	screenMaintenance
 	screenKeyUnlock
+	screenOperationConfirm
 )
 
 type formKind uint8
@@ -110,6 +112,10 @@ type Model struct {
 	width  int
 	height int
 
+	operationApproval *approval.Request
+	approvalBusy      bool
+	decidedApprovals  map[string]bool
+	approvalScroll    int
 	screen            screen
 	status            control.Status
 	targets           control.TargetsResult
@@ -226,6 +232,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(message tea.KeyMsg) tea.Cmd {
 	key := message.String()
+	if m.approvalBusy && key != "ctrl+c" {
+		return nil
+	}
 	if m.pending != nil && m.pending.busy && key != "ctrl+c" {
 		return nil
 	}
@@ -237,6 +246,8 @@ func (m *Model) handleKey(message tea.KeyMsg) tea.Cmd {
 	}
 
 	switch m.screen {
+	case screenOperationConfirm:
+		return m.handleOperationApproval(key)
 	case screenDashboard:
 		switch key {
 		case "u":
@@ -529,6 +540,11 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 		m.connectionNotice = ""
 	}
 	if message.err != nil {
+		if message.action == "approval_resolved" {
+			m.approvalBusy = false
+			m.operationApproval = nil
+			m.screen = screenDashboard
+		}
 		if message.action == "target_tested" || message.action == "database_tested" || message.action == "target_saved" || message.action == "key_status" {
 			m.clearPendingTarget()
 			if m.screen == screenKeyUnlock && m.form != nil {
@@ -546,8 +562,14 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 		m.notice = ""
 	}
 	switch message.action {
+	case "approval_resolved":
+		m.approvalBusy = false
+		m.operationApproval = nil
+		m.screen = screenDashboard
+		return m.loadStatus()
 	case "status":
 		m.status = message.value.(control.Status)
+		m.syncOperationApproval()
 		if !m.status.Unlocked && m.screen == screenKeyUnlock {
 			m.input.SetValue("")
 			m.keyUnlockPath = ""
@@ -662,6 +684,9 @@ func localControlErrorNotice(action string, err error) string {
 
 func (m *Model) View() tea.View {
 	lines := []string{m.header(), ""}
+	if m.approvalBusy {
+		lines = append(lines, m.label("正在提交本次决定……", "Submitting decision…"), "")
+	}
 	if m.connectionNotice != "" {
 		lines = append(lines, m.connectionNotice, "")
 	}
@@ -672,6 +697,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, m.label("正在验证并保存，请稍候……", "Verifying and saving, please wait…"), "")
 	}
 	switch m.screen {
+	case screenOperationConfirm:
+		lines = append(lines, m.renderOperationApproval()...)
 	case screenKeyUnlock:
 		lines = append(lines, m.label("解锁 SSH 私钥", "Unlock SSH private key"), m.keyUnlockPath, m.input.View(), "", m.label("口令仅用于本地解锁。Enter 解锁 · Esc 返回", "Passphrase is used only locally. Enter unlock · Esc back"))
 	case screenUnlock:
@@ -1039,6 +1066,7 @@ func (m *Model) beginSSHForm(target store.SSHTarget) {
 		auth = "password"
 	}
 	fields = append(fields, formField{label: m.label("认证方式", "Authentication"), value: auth, hint: m.label("← → 选择密码或私钥", "← → choose password or private key")}, formField{label: m.label("私钥路径", "Private key path"), value: target.PrivateKeyPath, hint: m.label("例如 ~/.ssh/id_ed25519；口令会在需要时单独询问", "For example ~/.ssh/id_ed25519; passphrase requested when needed")})
+	fields = append(fields, formField{label: m.label("操作权限", "Operation permission"), value: string(store.EffectivePermissionTier(target.PermissionTier)), hint: m.label("← → 选择：只读巡检 / 确认后操作 / 完全授权", "← → choose: Read only / Confirm operations / Full authorization")})
 	m.formButton = 0
 	m.form = &targetForm{kind: formSSH, enabled: target.Enabled, ssh: &target, fields: fields}
 	m.screen = screenForm
@@ -1067,6 +1095,7 @@ func (m *Model) beginDatabaseForm(instance store.DatabaseInstance) {
 		{label: m.msg.DBFieldTLSCAPath, value: instance.TLSCAPath},
 		{label: m.msg.DBFieldDescription, value: instance.Description},
 		{label: m.msg.DBFieldEnvironment, value: instance.Environment},
+		{label: m.label("操作权限", "Operation permission"), value: string(store.EffectivePermissionTier(instance.PermissionTier)), hint: m.label("← → 选择：只读巡检 / 确认后操作 / 完全授权", "← → choose: Read only / Confirm operations / Full authorization")},
 	}}
 	m.screen = screenForm
 	m.loadCurrentField()
@@ -1151,7 +1180,7 @@ func (m *Model) submitForm() tea.Cmd {
 		}
 		params := control.UpsertSSHTargetParams{Target: store.SSHTarget{
 			IP: value(0), Mode: store.SSHDirect, SSHPort: port, LoginUsername: value(2),
-			AuthMethod: value(8), PrivateKeyPath: value(9), CredentialID: credentialID, CommandBlacklistPatterns: commaSeparated(value(4)),
+			PermissionTier: store.PermissionTier(value(10)), AuthMethod: value(8), PrivateKeyPath: value(9), CredentialID: credentialID, CommandBlacklistPatterns: commaSeparated(value(4)),
 			Description: value(5), Environment: value(6), AllowFileOperations: allowFileOperations, Enabled: m.form.enabled,
 		}, Password: value(3)}
 		if params.Target.AuthMethod == "private_key" {
@@ -1192,7 +1221,7 @@ func (m *Model) submitForm() tea.Cmd {
 		ReadUsername: value(4), WriteUsername: writeUsername,
 		ReadCredentialID: readCredentialID, WriteCredentialID: writeCredentialID,
 		TransportPolicy: store.DatabaseTransportPolicy(value(8)), TLSCAPath: value(9),
-		Description: value(10), Environment: value(11), Enabled: m.form.enabled,
+		PermissionTier: store.PermissionTier(value(12)), Description: value(10), Environment: value(11), Enabled: m.form.enabled,
 	}, ReadPassword: value(5), WritePassword: value(7)}
 	m.form.fields[5].value, m.form.fields[7].value = "", ""
 	return m.beginDatabaseTest(params)

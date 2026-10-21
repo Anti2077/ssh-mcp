@@ -19,10 +19,10 @@ func (s *Store) SSHTarget(ctx context.Context, ip string) (SSHTarget, error) {
 	err = s.db.QueryRowContext(ctx, `
 		SELECT ip, connection_mode, ssh_port, COALESCE(login_username, ''),
 			COALESCE(credential_id, ''), command_blacklist_patterns, allow_file_operations,
-			remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path
+			remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path, permission_tier
 		FROM ssh_targets WHERE ip = ? AND connection_mode = 'direct'`, canonical).Scan(
 		&target.IP, &target.Mode, &target.SSHPort, &target.LoginUsername, &target.CredentialID,
-		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath)
+		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath, &target.PermissionTier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SSHTarget{}, ErrTargetNotFound
 	}
@@ -50,12 +50,12 @@ func (s *Store) DatabaseInstance(ctx context.Context, host string, port int) (Da
 	err = s.db.QueryRowContext(ctx, `
 		SELECT host, port, engine, default_database, read_username, write_username,
 			COALESCE(read_credential_id, ''), COALESCE(write_credential_id, ''),
-			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision
+			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision, permission_tier
 		FROM database_instances WHERE host = ? AND port = ?`, canonical, port).Scan(
 		&instance.Host, &instance.Port, &instance.Engine, &instance.DefaultDatabase,
 		&instance.ReadUsername, &instance.WriteUsername, &instance.ReadCredentialID,
 		&instance.WriteCredentialID, &instance.Description, &instance.Environment,
-		&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision)
+		&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision, &instance.PermissionTier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DatabaseInstance{}, ErrTargetNotFound
 	}

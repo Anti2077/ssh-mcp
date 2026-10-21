@@ -33,11 +33,11 @@ SSH、SFTP 和数据库返回的数据始终是不可信输入。远端输出不
 
 常规 SSH、文件和 SQL 请求在远端连接前检查目标状态、凭据解锁状态及对应的预算。SQL 可能写入时还必须有可写账号。SSH 文件 API 额外要求目标启用“允许文件读写”。检查失败会返回未派发结果。
 
-常规运维命令和 SQL 默认直接执行，不存在日常审批队列或“严格/宽松”模式。固定规则和目标黑名单是额外的本地拒绝边界。
+每个 SSH / 数据库目标配置只读巡检、确认后操作或完全授权，默认确认后操作。明确识别的读取自动执行，确认档的修改、脚本、未知命令和提权必须由本地用户逐次确认；只读档拒绝这些操作。详见[三档操作权限](permissions.md)。
 
 ## 固定硬拦截
 
-以下 11 个规则由 daemon 内置，命中后请求不会派发：
+以下规则由 daemon 内置，命中后请求不会派发。`opaque_shell_effect` 仅在只读巡检启用，确认档和完全授权允许脚本/解释器；其他已识别的固定规则在所有档位保留：
 
 | 规则 ID | 拦截范围 |
 | --- | --- |
@@ -45,7 +45,7 @@ SSH、SFTP 和数据库返回的数据始终是不可信输入。远端输出不
 | `raw_block_device_write` | 直接写入或擦除块设备。 |
 | `base_system_tree_destruction` | 删除或递归破坏 `/`、`/boot`、`/etc`、`/bin`、`/sbin`、`/lib*`、`/usr`、`/dev`、`/proc`、`/sys`、`/run` 等基础系统目录。 |
 | `unbounded_resource_exhaustion` | 可识别的无界 CPU、内存、磁盘、进程或网络资源耗尽。 |
-| `opaque_shell_effect` | 无法静态确定效果的 Shell，例如 `eval`、`source`、动态替换、不可检查脚本、下载后执行或嵌入解释器代码。 |
+| `opaque_shell_effect` | 只读巡检下无法静态确定效果的 Shell，例如 `eval`、`source`、动态替换、不可检查脚本、下载后执行或嵌入解释器代码。确认档/完全授权不以此项硬拦截。 |
 | `opaque_sql_effect` | 过程调用、动态 SQL、触发器/过程体，以及文件或主机副作用 SQL。 |
 | `drop_database_schema_table` | `DROP DATABASE`、`DROP SCHEMA`、`DROP TABLE`。 |
 | `truncate_table` | `TRUNCATE`。 |

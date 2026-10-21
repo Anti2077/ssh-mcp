@@ -189,7 +189,13 @@ func (m *Model) formButtons() string {
 }
 
 func (m *Model) choiceValue(index int) (string, bool) {
-	if m.form == nil || m.form.kind != formSSH {
+	if m.form == nil {
+		return "", false
+	}
+	if m.permissionField(index) {
+		return m.permissionLabel(store.PermissionTier(m.form.fields[index].value)), true
+	}
+	if m.form.kind != formSSH {
 		return "", false
 	}
 	switch index {
@@ -218,6 +224,22 @@ func (m *Model) choiceLabel(index int) string {
 func (m *Model) formNavigation(message tea.KeyMsg, key string) (bool, tea.Cmd) {
 	if m.form == nil {
 		return false, nil
+	}
+	if m.permissionField(m.form.index) && m.formButton == 0 && (key == "left" || key == "right" || key == " ") {
+		tiers := []store.PermissionTier{store.PermissionReadOnly, store.PermissionConfirm, store.PermissionFull}
+		pos := 0
+		for i, tier := range tiers {
+			if string(tier) == m.form.fields[m.form.index].value {
+				pos = i
+			}
+		}
+		delta := 1
+		if key == "left" {
+			delta = -1
+		}
+		m.form.fields[m.form.index].value = string(tiers[(pos+delta+3)%3])
+		m.loadCurrentField()
+		return true, nil
 	}
 	if _, choice := m.choiceValue(m.form.index); choice && m.formButton == 0 {
 		switch key {
@@ -343,7 +365,7 @@ func (m *Model) visibleFields() []int {
 		if m.form.fields[8].value == "private_key" {
 			credential = 9
 		}
-		return []int{0, 1, 2, 8, credential, 4, 5, 6, 7}
+		return []int{0, 1, 2, 8, credential, 10, 4, 5, 6, 7}
 	}
 	order := make([]int, len(m.form.fields))
 	for i := range order {

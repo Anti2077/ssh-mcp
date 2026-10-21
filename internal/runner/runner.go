@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"ssh-mcp/internal/approval"
 	"ssh-mcp/internal/auditlog"
 	"ssh-mcp/internal/clock"
 	"ssh-mcp/internal/dbservice"
@@ -102,6 +103,7 @@ type Auditor interface {
 }
 
 type Dependencies struct {
+	Approvals          *approval.Broker
 	Targets            TargetStore
 	Sessions           Session
 	SSH                SSHService
@@ -248,21 +250,23 @@ func (e *Engine) acquireTargetReadLane(ctx context.Context, protocol TargetProto
 }
 
 type SSHTarget struct {
-	IP                  string `json:"ip"`
-	Port                int    `json:"port"`
-	Description         string `json:"description,omitempty"`
-	Environment         string `json:"environment,omitempty"`
-	Enabled             bool   `json:"enabled"`
-	FileReadAvailable   bool   `json:"file_read_available"`
-	AllowFileOperations bool   `json:"allow_file_operations"`
+	PermissionTier      store.PermissionTier `json:"permission_tier"`
+	IP                  string               `json:"ip"`
+	Port                int                  `json:"port"`
+	Description         string               `json:"description,omitempty"`
+	Environment         string               `json:"environment,omitempty"`
+	Enabled             bool                 `json:"enabled"`
+	FileReadAvailable   bool                 `json:"file_read_available"`
+	AllowFileOperations bool                 `json:"allow_file_operations"`
 }
 
 type DatabaseTarget struct {
-	Target      string               `json:"target"`
-	Engine      store.DatabaseEngine `json:"engine"`
-	Description string               `json:"description,omitempty"`
-	Environment string               `json:"environment,omitempty"`
-	Enabled     bool                 `json:"enabled"`
+	PermissionTier store.PermissionTier `json:"permission_tier"`
+	Target         string               `json:"target"`
+	Engine         store.DatabaseEngine `json:"engine"`
+	Description    string               `json:"description,omitempty"`
+	Environment    string               `json:"environment,omitempty"`
+	Enabled        bool                 `json:"enabled"`
 }
 
 type TargetsResult struct {
@@ -287,11 +291,13 @@ type ExecutionSpecificationRequest struct {
 // ExecutionSpecification is the non-sensitive portion of the execution specification
 // visible to an MCP client before it submits an operation.
 type ExecutionSpecification struct {
-	Target          string         `json:"target"`
-	Protocol        TargetProtocol `json:"protocol"`
-	Available       bool           `json:"available"`
-	PolicyVersion   string         `json:"policy_version"`
-	DirectExecution []string       `json:"direct_execution"`
+	PermissionTier      store.PermissionTier `json:"permission_tier"`
+	ConfirmationChannel string               `json:"confirmation_channel,omitempty"`
+	Target              string               `json:"target"`
+	Protocol            TargetProtocol       `json:"protocol"`
+	Available           bool                 `json:"available"`
+	PolicyVersion       string               `json:"policy_version"`
+	DirectExecution     []string             `json:"direct_execution"`
 	// AbsoluteProhibitions is retained for protocol compatibility. It lists
 	// only fixed hard-stop IDs recognized by this daemon version, rather than
 	// a semantic or MCP-external universal prohibition.
@@ -486,10 +492,10 @@ func (e *Engine) ListTargets(ctx context.Context) (TargetsResult, error) {
 	result := TargetsResult{SSH: make([]SSHTarget, 0, len(sshTargets)), Databases: make([]DatabaseTarget, 0, len(databases))}
 	for _, target := range sshTargets {
 		allowed := fileOperationsAllowed(target)
-		result.SSH = append(result.SSH, SSHTarget{IP: target.IP, Port: target.SSHPort, Description: target.Description, Environment: target.Environment, Enabled: target.Enabled, FileReadAvailable: target.Enabled && allowed, AllowFileOperations: allowed})
+		result.SSH = append(result.SSH, SSHTarget{PermissionTier: store.EffectivePermissionTier(target.PermissionTier), IP: target.IP, Port: target.SSHPort, Description: target.Description, Environment: target.Environment, Enabled: target.Enabled, FileReadAvailable: target.Enabled && allowed, AllowFileOperations: allowed})
 	}
 	for _, target := range databases {
-		result.Databases = append(result.Databases, DatabaseTarget{Target: net.JoinHostPort(target.Host, strconv.Itoa(target.Port)), Engine: target.Engine, Description: target.Description, Environment: target.Environment, Enabled: target.Enabled})
+		result.Databases = append(result.Databases, DatabaseTarget{PermissionTier: store.EffectivePermissionTier(target.PermissionTier), Target: net.JoinHostPort(target.Host, strconv.Itoa(target.Port)), Engine: target.Engine, Description: target.Description, Environment: target.Environment, Enabled: target.Enabled})
 	}
 	return result, nil
 }
@@ -511,9 +517,15 @@ func (e *Engine) DescribeExecutionSpecification(ctx context.Context, request Exe
 			return ExecutionSpecification{}, err
 		}
 		capability.Target = target.IP
+		capability.PermissionTier = store.EffectivePermissionTier(target.PermissionTier)
+		capability.ConfirmationChannel = "local_tui"
+		capability.AbsoluteProhibitions = permissionHardStops(capability.PermissionTier)
 		capability.Available = sshTargetAvailable(target)
 		if capability.Available {
-			capability.DirectExecution = []string{"all_non_blocked_ssh", "as_root_via_daemon_sudo_n"}
+			capability.DirectExecution = []string{"recognized_read_only_ssh"}
+			if capability.PermissionTier == store.PermissionFull {
+				capability.DirectExecution = []string{"all_non_blocked_ssh", "as_root_via_daemon_sudo_n"}
+			}
 		}
 		capability.AllowFileOperations = fileOperationsAllowed(target)
 		capability.FileReadAvailable = capability.Available && capability.AllowFileOperations
@@ -528,9 +540,11 @@ func (e *Engine) DescribeExecutionSpecification(ctx context.Context, request Exe
 		capability.BinaryDeploymentMaxBytes = sshtransport.MaxBinaryDeploymentBytes
 		capability.BinaryDeploymentDefaultTimeoutSeconds = int(DefaultBinaryDeploymentTimeout / time.Second)
 		capability.BinaryDeploymentMaxTimeoutSeconds = int(MaxBinaryDeploymentTimeout / time.Second)
-		if capability.Available && capability.AllowFileOperations {
+		if capability.Available && capability.AllowFileOperations && capability.PermissionTier != store.PermissionReadOnly {
 			capability.BinaryDeploymentAvailable = true
-			capability.DirectExecution = append(capability.DirectExecution, "controlled_binary_deployment")
+			if capability.PermissionTier == store.PermissionFull {
+				capability.DirectExecution = append(capability.DirectExecution, "controlled_binary_deployment")
+			}
 		}
 		return capability, nil
 	case ProtocolSQL:
@@ -539,9 +553,14 @@ func (e *Engine) DescribeExecutionSpecification(ctx context.Context, request Exe
 			return ExecutionSpecification{}, err
 		}
 		capability.Target = targetID
+		capability.PermissionTier = store.EffectivePermissionTier(instance.PermissionTier)
+		capability.ConfirmationChannel = "local_tui"
 		capability.Available = instance.Enabled
 		if capability.Available {
-			capability.DirectExecution = []string{"all_non_blocked_sql", "write_sql_with_explicit_write_credential"}
+			capability.DirectExecution = []string{"recognized_read_only_sql"}
+			if capability.PermissionTier == store.PermissionFull {
+				capability.DirectExecution = []string{"all_non_blocked_sql", "write_sql_with_explicit_write_credential"}
+			}
 		}
 		capability.MaxRows = 0
 		return capability, nil
@@ -559,7 +578,7 @@ func (e *Engine) RunSSH(ctx context.Context, request SSHRequest) (Result, error)
 		return Result{}, err
 	}
 	if !sshTargetAvailable(target) {
-		decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, Timeout: request.Timeout, MaxBytes: request.MaxBytes, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
+		decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, Timeout: request.Timeout, MaxBytes: request.MaxBytes, AllowScripts: store.EffectivePermissionTier(target.PermissionTier) != store.PermissionReadOnly, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
 		decision.Decision = policy.DecisionRejected
 		decision.Reason = policy.ReasonTargetUnavailable
 		decision.RuleID = ""
@@ -574,13 +593,16 @@ func (e *Engine) RunSSH(ctx context.Context, request SSHRequest) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, Timeout: request.Timeout, MaxBytes: request.MaxBytes, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
+	decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, Timeout: request.Timeout, MaxBytes: request.MaxBytes, AllowScripts: store.EffectivePermissionTier(target.PermissionTier) != store.PermissionReadOnly, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
 	payload := bindTarget(decision.Payload, "ssh", target.IP)
 	if decision.Decision == policy.DecisionRejected || decision.Decision == policy.DecisionPermanentlyRejected {
 		return e.rejectedResult(ctx, "ssh", target.IP, payload, decision)
 	}
 	if decision.InteractiveInputRequired {
 		return e.interactiveInputResult(ctx, "ssh", target.IP, payload, decision)
+	}
+	if result, ok := e.authorizeOperation(ctx, target.PermissionTier, policy.SSHReadOnly(request.Command, request.AsRoot, nil), approval.Request{Target: target.IP, Protocol: "ssh", Revision: target.Revision, Operation: "run_ssh", Details: fmt.Sprintf("command=%s\nas_root=%t\ntimeout=%s\nmax_bytes=%d", request.Command, request.AsRoot, decision.Timeout, decision.MaxBytes)}, decision, payload); !ok {
+		return result, nil
 	}
 	return e.executeSSH(ctx, target, vault, request, decision, payload, "", decision.Normalized, nil, nil, sshExecutionIsolated)
 }
@@ -754,7 +776,7 @@ func (e *Engine) DeploySSHBinary(ctx context.Context, request SSHBinaryDeploymen
 	if deployment.StartAction != "" {
 		startDecision := e.evaluateSSH(ctx, policy.SSHRequest{
 			Command: deployment.StartAction, Timeout: timeout, MaxBytes: 1024,
-			CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...),
+			AllowScripts: store.EffectivePermissionTier(target.PermissionTier) != store.PermissionReadOnly, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...),
 		})
 		if startDecision.Decision == policy.DecisionRejected || startDecision.Decision == policy.DecisionPermanentlyRejected || startDecision.InteractiveInputRequired {
 			return e.deploymentDecision(ctx, target.IP, request, decision, FailureKindDeploymentSource, "start_action_not_allowed")
@@ -780,6 +802,10 @@ func (e *Engine) DeploySSHBinary(ctx context.Context, request SSHBinaryDeploymen
 	}
 
 	// Resolve the source before acquiring the remote dispatch barrier.
+	if tier := store.EffectivePermissionTier(target.PermissionTier); tier == store.PermissionReadOnly || !store.ValidPermissionTier(tier) {
+		result, _ := e.authorizeOperation(ctx, tier, false, approval.Request{Target: target.IP, Protocol: "ssh", Revision: target.Revision, Operation: "deploy_ssh_binary"}, decision, "kind=ssh_binary_deployment")
+		return result, nil
+	}
 	var source io.ReadCloser
 	var metadata deploymentMetadata
 	if strings.TrimSpace(request.SourcePath) != "" {
@@ -799,6 +825,9 @@ func (e *Engine) DeploySSHBinary(ctx context.Context, request SSHBinaryDeploymen
 		return e.deploymentDecision(ctx, target.IP, request, decision, FailureKindDeploymentTooLarge, "deployment_source_too_large")
 	}
 
+	if result, ok := e.authorizeOperation(ctx, target.PermissionTier, false, approval.Request{Target: target.IP, Protocol: "ssh", Revision: target.Revision, Operation: "deploy_ssh_binary", Details: fmt.Sprintf("source=%s\nremote_path=%s\nsize=%d\nsha256=%s\nstart_action=%s\ntimeout=%s", request.SourcePath, deployment.RemotePath, metadata.Size, metadata.SHA256, deployment.StartAction, timeout)}, decision, deploymentPayload(request, deployment, metadata)); !ok {
+		return result, nil
+	}
 	requestID, err := newID()
 	if err != nil {
 		return Result{}, err
@@ -965,11 +994,25 @@ func inspectLocalDeploymentSource(ctx context.Context, sourcePath string, maxByt
 	if err != nil {
 		return nil, deploymentMetadata{}, err
 	}
+	defer file.Close()
 	opened, err := file.Stat()
 	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Size() != info.Size() {
 		_ = file.Close()
 		return nil, deploymentMetadata{}, os.ErrInvalid
 	}
+	// The review can take minutes. Snapshot the bytes being approved so an
+	// edit to the original pathname cannot change what is uploaded afterwards.
+	snapshot, err := os.CreateTemp("", ".ssh-mcp-deploy-*")
+	if err != nil {
+		return nil, deploymentMetadata{}, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = snapshot.Close()
+			_ = os.Remove(snapshot.Name())
+		}
+	}()
 	hash := sha256.New()
 	buffer := make([]byte, 32<<10)
 	var total int64
@@ -985,6 +1028,9 @@ func inspectLocalDeploymentSource(ctx context.Context, sourcePath string, maxByt
 		}
 		if read > 0 {
 			_, _ = hash.Write(buffer[:read])
+			if _, err := snapshot.Write(buffer[:read]); err != nil {
+				return nil, deploymentMetadata{}, err
+			}
 			total += int64(read)
 		}
 		if readErr == io.EOF {
@@ -1000,11 +1046,20 @@ func inspectLocalDeploymentSource(ctx context.Context, sourcePath string, maxByt
 		return nil, deploymentMetadata{}, sshtransport.ErrDeploymentIntegrity
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
+	if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
 		_ = file.Close()
 		return nil, deploymentMetadata{}, err
 	}
-	return file, deploymentMetadata{Size: total, SHA256: digest}, nil
+	keep = true
+	return &deploymentSnapshot{File: snapshot}, deploymentMetadata{Size: total, SHA256: digest}, nil
+}
+
+type deploymentSnapshot struct{ *os.File }
+
+func (s *deploymentSnapshot) Close() error {
+	err := s.File.Close()
+	_ = os.Remove(s.File.Name())
+	return err
 }
 
 func deploymentPayload(_ SSHBinaryDeploymentRequest, deployment deploymentSpec, metadata deploymentMetadata) string {
@@ -1315,7 +1370,7 @@ func (e *Engine) ExecuteSSHSession(ctx context.Context, request ExecuteSSHSessio
 	if err != nil {
 		return Result{}, err
 	}
-	decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, WorkingDirectory: session.Context.WorkingDirectory, Timeout: request.Timeout, MaxBytes: request.MaxBytes, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
+	decision := e.evaluateSSH(ctx, policy.SSHRequest{Command: request.Command, AsRoot: request.AsRoot, WorkingDirectory: session.Context.WorkingDirectory, Timeout: request.Timeout, MaxBytes: request.MaxBytes, AllowScripts: store.EffectivePermissionTier(target.PermissionTier) != store.PermissionReadOnly, CommandBlacklistPatterns: append([]string(nil), target.CommandBlacklistPatterns...)})
 	payload := bindTarget(decision.Payload, "ssh", target.IP) + "\nssh_session_id=" + session.ID
 	if decision.Decision == policy.DecisionRejected || decision.Decision == policy.DecisionPermanentlyRejected {
 		result, resultErr := e.rejectedResult(ctx, "ssh", target.IP, payload, decision)
@@ -1327,6 +1382,9 @@ func (e *Engine) ExecuteSSHSession(ctx context.Context, request ExecuteSSHSessio
 			result.SSHSession = &session
 		}
 		return result, resultErr
+	}
+	if result, ok := e.authorizeOperation(ctx, target.PermissionTier, policy.SSHReadOnly(request.Command, request.AsRoot, session.Context.Environment), approval.Request{Target: target.IP, Protocol: "ssh", Revision: target.Revision, Operation: "execute_ssh_session", Details: fmt.Sprintf("session=%s\ncommand=%s\nas_root=%t\ncontext=%+v\ntimeout=%s\nmax_bytes=%d", session.ID, request.Command, request.AsRoot, session.Context, decision.Timeout, decision.MaxBytes)}, decision, payload); !ok {
+		return result, nil
 	}
 	remoteCommand := session.Context.WrapCommand(decision.Normalized)
 	result, err := e.executeSSH(ctx, target, vault, SSHRequest{Target: target.IP, Command: request.Command, AsRoot: request.AsRoot, Timeout: request.Timeout, MaxBytes: request.MaxBytes}, decision, payload, "", remoteCommand, lease.BeginDispatch, lease.FinishDispatch, sshExecutionDedicated)
@@ -1576,6 +1634,9 @@ func (e *Engine) RunSQL(ctx context.Context, request SQLRequest) (Result, error)
 	}
 	if err != nil {
 		return Result{}, err
+	}
+	if result, ok := e.authorizeOperation(ctx, instance.PermissionTier, decision.ExecutionClass == policy.SQLExecutionRead, approval.Request{Target: targetID, Protocol: "sql", Revision: instance.Revision, Operation: "run_sql", Details: fmt.Sprintf("database=%s\nstatement=%s\ntimeout=%s\nmax_rows=%d\nmax_bytes=%d", database, request.Statement, decision.Timeout, decision.MaxRows, decision.MaxBytes)}, decision, payload); !ok {
+		return result, nil
 	}
 	if decision.ExecutionClass != policy.SQLExecutionRead {
 		releaseLane, laneErr := e.acquireTargetLane(ctx, ProtocolSQL, targetID)

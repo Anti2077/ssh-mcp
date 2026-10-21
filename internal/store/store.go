@@ -93,6 +93,7 @@ const (
 )
 
 type SSHTarget struct {
+	PermissionTier PermissionTier
 	// Authentication is password (the migration default) or private_key.
 	AuthMethod               string
 	PrivateKeyPath           string
@@ -114,6 +115,7 @@ type SSHTarget struct {
 }
 
 type DatabaseInstance struct {
+	PermissionTier    PermissionTier
 	Host              string
 	Port              int
 	Engine            DatabaseEngine

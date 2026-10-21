@@ -135,12 +135,12 @@ func loadDatabaseInstanceTx(ctx context.Context, tx *sql.Tx, host string, port i
 	err := tx.QueryRowContext(ctx, `
 		SELECT host, port, engine, default_database, read_username, write_username,
 			COALESCE(read_credential_id, ''), COALESCE(write_credential_id, ''),
-			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision
+			description, environment, transport_security, transport_policy, tls_ca_path, enabled, database_major_version, version_status, revision, permission_tier
 		FROM database_instances WHERE host = ? AND port = ?`, host, port).Scan(
 		&instance.Host, &instance.Port, &instance.Engine, &instance.DefaultDatabase,
 		&instance.ReadUsername, &instance.WriteUsername, &instance.ReadCredentialID,
 		&instance.WriteCredentialID, &instance.Description, &instance.Environment,
-		&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision)
+		&instance.TransportSecurity, &instance.TransportPolicy, &instance.TLSCAPath, &enabled, &instance.MajorVersion, &instance.VersionStatus, &instance.Revision, &instance.PermissionTier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DatabaseInstance{}, false, nil
 	}

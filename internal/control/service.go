@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"ssh-mcp/internal/approval"
 	"ssh-mcp/internal/auditlog"
 	"ssh-mcp/internal/dbservice"
 	"ssh-mcp/internal/dbtransport"
@@ -44,6 +45,7 @@ type DispatchLease interface {
 type DispatchLeaseAcquirer func() DispatchLease
 
 type Service struct {
+	approvals   *approval.Broker
 	store       *store.Store
 	sessions    *session.Manager
 	ssh         *sshservice.Service
@@ -58,6 +60,8 @@ type Service struct {
 	// databaseTargetMu 保证数据库目标的撤销、状态变更和激活作为一个有序事务完成。
 	databaseTargetMu sync.Locker
 }
+
+func WithApprovals(b *approval.Broker) Option { return func(s *Service) { s.approvals = b } }
 
 type Option func(*Service)
 
@@ -343,10 +347,11 @@ func (s *Service) prepareDatabaseInstanceConfiguration(ctx context.Context, inst
 }
 
 type Status struct {
-	Initialized bool     `json:"initialized"`
-	Unlocked    bool     `json:"unlocked"`
-	Language    string   `json:"language"`
-	PendingKeys []string `json:"pending_keys,omitempty"`
+	PendingApprovals []approval.Request `json:"pending_approvals,omitempty"`
+	Initialized      bool               `json:"initialized"`
+	Unlocked         bool               `json:"unlocked"`
+	Language         string             `json:"language"`
+	PendingKeys      []string           `json:"pending_keys,omitempty"`
 }
 
 type SetTUILanguageParams struct {
@@ -463,11 +468,24 @@ func (s *Service) Handle(ctx context.Context, method string, params json.RawMess
 		passphrase := []byte(input.Passphrase)
 		defer secret.Zero(passphrase)
 		return struct{}{}, s.ssh.UnlockKey(input.Path, passphrase)
+	case "approval.resolve":
+		input, err := decodeParams[struct {
+			ID       string `json:"id"`
+			Approved bool   `json:"approved"`
+		}](params)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.sessions.Vault(); err != nil {
+			return nil, err
+		}
+		return struct{}{}, s.approvals.Resolve(input.ID, input.Approved)
 	case "status":
 		return s.status(ctx)
 	case "unlock":
 		return s.unlock(ctx, params)
 	case "lock":
+		s.approvals.CancelAll()
 		s.sessions.Lock()
 		return struct{}{}, nil
 	case "targets.list":
@@ -542,7 +560,7 @@ func (s *Service) status(ctx context.Context) (Status, error) {
 	if lang, err := s.store.GetTUILanguage(ctx); err == nil {
 		language = lang
 	}
-	return Status{Initialized: initialized, Unlocked: s.sessions.IsUnlocked(), Language: language, PendingKeys: s.ssh.PendingKeys()}, nil
+	return Status{Initialized: initialized, Unlocked: s.sessions.IsUnlocked(), Language: language, PendingKeys: s.ssh.PendingKeys(), PendingApprovals: s.approvals.Pending()}, nil
 }
 
 func (s *Service) setTUILanguage(ctx context.Context, params json.RawMessage) (struct{}, error) {
@@ -978,5 +996,6 @@ func decodeUpsertSSHTargetParams(params json.RawMessage) (UpsertSSHTargetParams,
 var _ ipc.Handler = (*Service)(nil)
 
 func (s *Service) Close() {
+	s.approvals.CancelAll()
 	s.sessions.Close()
 }

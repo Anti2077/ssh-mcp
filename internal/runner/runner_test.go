@@ -30,8 +30,8 @@ func TestEngineListsNonSensitiveTargetsWithoutOpeningRemoteSession(t *testing.T)
 	if err != nil {
 		t.Fatalf("ListTargets() error = %v", err)
 	}
-	if len(result.SSH) != 1 || result.SSH[0] != (SSHTarget{IP: "192.0.2.10", Port: 22, Enabled: true, FileReadAvailable: true, AllowFileOperations: true}) ||
-		len(result.Databases) != 1 || result.Databases[0] != (DatabaseTarget{Target: "192.0.2.20:5432", Engine: store.EnginePostgreSQL, Enabled: true}) {
+	if len(result.SSH) != 1 || result.SSH[0] != (SSHTarget{PermissionTier: store.PermissionConfirm, IP: "192.0.2.10", Port: 22, Enabled: true, FileReadAvailable: true, AllowFileOperations: true}) ||
+		len(result.Databases) != 1 || result.Databases[0] != (DatabaseTarget{PermissionTier: store.PermissionConfirm, Target: "192.0.2.20:5432", Engine: store.EnginePostgreSQL, Enabled: true}) {
 		t.Fatalf("ListTargets() = %#v", result)
 	}
 	if deps.openedTUI != 0 || deps.sessions.touched != 0 {
@@ -1003,8 +1003,8 @@ type fakeDependencies struct {
 func newFakeDependencies() *fakeDependencies {
 	return &fakeDependencies{
 		targets: &fakeTargets{
-			sshTarget:      store.SSHTarget{IP: "192.0.2.10", SSHPort: 22, LoginUsername: "ops", Enabled: true, AllowFileOperations: true, IdentityStatus: store.SSHIdentityVerified},
-			databaseTarget: store.DatabaseInstance{Host: "192.0.2.20", Port: 5432, Engine: store.EnginePostgreSQL, DefaultDatabase: "app", ReadUsername: "app_read", ReadCredentialID: "read", WriteUsername: "app_write", WriteCredentialID: "write", Enabled: true, MajorVersion: 16, VersionStatus: store.DatabaseVersionVerified},
+			sshTarget:      store.SSHTarget{PermissionTier: store.PermissionFull, IP: "192.0.2.10", SSHPort: 22, LoginUsername: "ops", Enabled: true, AllowFileOperations: true, IdentityStatus: store.SSHIdentityVerified},
+			databaseTarget: store.DatabaseInstance{PermissionTier: store.PermissionFull, Host: "192.0.2.20", Port: 5432, Engine: store.EnginePostgreSQL, DefaultDatabase: "app", ReadUsername: "app_read", ReadCredentialID: "read", WriteUsername: "app_write", WriteCredentialID: "write", Enabled: true, MajorVersion: 16, VersionStatus: store.DatabaseVersionVerified},
 		}, sessions: &fakeSessions{}, ssh: &fakeSSH{}, database: &fakeDatabase{}, workSessions: worksession.New(worksession.Options{}), audit: &fakeAudit{},
 	}
 }

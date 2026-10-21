@@ -10,6 +10,7 @@ This is a community fork of [lswzw/ssh-mcp](https://github.com/lswzw/ssh-mcp), r
 
 ## Changes in this fork
 
+- Per-target read-only, local confirmation (default), and full authorization tiers, with one-use operator decisions and tier-aware scripts. See [permissions and Codex approval](docs/en/permissions.md).
 - SSH password and local private-key authentication, including encrypted OpenSSH / PEM keys.
 - Local passphrase entry; unlocked signers remain in daemon memory and are cleared when the vault locks or the daemon stops.
 - Chinese / English keyboard console with vertical action menus and clear radio selections.

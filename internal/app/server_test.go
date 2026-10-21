@@ -109,6 +109,13 @@ func TestToolDescriptionsIncludeCallArgumentExamples(t *testing.T) {
 		t.Fatal("ListTools() returned no tools")
 	}
 	for _, tool := range listed.Tools {
+		wantReadOnly := tool.Name == "list_targets" || tool.Name == "describe_target_capability" || tool.Name == "list_databases" || tool.Name == "read_ssh_file"
+		if got := tool.Annotations != nil && tool.Annotations.ReadOnlyHint; got != wantReadOnly {
+			t.Fatalf("%s readOnlyHint=%t, want %t", tool.Name, got, wantReadOnly)
+		}
+		if strings.Contains(tool.Name, "approv") || strings.Contains(tool.Name, "confirm") {
+			t.Fatalf("MCP must not expose user approval: %s", tool.Name)
+		}
 		if !strings.Contains(tool.Description, "Example call arguments") && !strings.Contains(tool.Description, "调用示例 arguments") {
 			t.Fatalf("tool %q description lacks a call argument example: %q", tool.Name, tool.Description)
 		}
@@ -563,11 +570,11 @@ func (mcpTestTargets) ListDatabaseInstances(context.Context) ([]store.DatabaseIn
 	return nil, nil
 }
 func (mcpTestTargets) SSHTarget(context.Context, string) (store.SSHTarget, error) {
-	return store.SSHTarget{IP: "192.0.2.10", SSHPort: 22, LoginUsername: "ops", Enabled: true, IdentityStatus: store.SSHIdentityVerified}, nil
+	return store.SSHTarget{PermissionTier: store.PermissionFull, IP: "192.0.2.10", SSHPort: 22, LoginUsername: "ops", Enabled: true, IdentityStatus: store.SSHIdentityVerified}, nil
 }
 func (mcpTestTargets) DatabaseInstance(_ context.Context, host string, port int) (store.DatabaseInstance, error) {
 	if host == "192.0.2.20" && port == 5432 {
-		return store.DatabaseInstance{Host: host, Port: port, Engine: store.EnginePostgreSQL, DefaultDatabase: "app", ReadUsername: "app_read", ReadCredentialID: "read", WriteUsername: "app_write", WriteCredentialID: "write", Enabled: true, MajorVersion: 16, VersionStatus: store.DatabaseVersionVerified}, nil
+		return store.DatabaseInstance{PermissionTier: store.PermissionFull, Host: host, Port: port, Engine: store.EnginePostgreSQL, DefaultDatabase: "app", ReadUsername: "app_read", ReadCredentialID: "read", WriteUsername: "app_write", WriteCredentialID: "write", Enabled: true, MajorVersion: 16, VersionStatus: store.DatabaseVersionVerified}, nil
 	}
 	return store.DatabaseInstance{}, store.ErrTargetNotFound
 }

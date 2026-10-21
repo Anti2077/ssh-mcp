@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	Version           = "2026-08-07.5"
+	Version           = "2026-10-21.1"
 	DefaultSSHTimeout = 60 * time.Second
 	DefaultSQLTimeout = 30 * time.Second
 	DefaultMaxRows    = 1000
@@ -79,6 +79,7 @@ const (
 )
 
 type SSHRequest struct {
+	AllowScripts                  bool
 	Command                       string
 	AsRoot                        bool
 	WorkingDirectory              string
@@ -181,7 +182,7 @@ func EvaluateSSH(request SSHRequest) Result {
 		return withDecision(result, DecisionAllowed, ReasonStaticShell)
 	}
 	analysis.knownPathCommands = collectKnownPathCommands(command, workingDirectory)
-	if match, found := matchSSHHardStop(command, analysis, request.RegisteredRemoteTargets, request.RemoteTargetRegistryAvailable); found {
+	if match, found := matchSSHHardStop(command, analysis, request.RegisteredRemoteTargets, request.RemoteTargetRegistryAvailable, request.AllowScripts); found {
 		return withHardStop(result, match)
 	}
 	if blacklistPattern != "" {
@@ -355,8 +356,11 @@ func matchTargetCommandBlacklist(command string, patterns []string) (string, err
 	return "", nil
 }
 
-func matchSSHHardStop(command string, analysis shellAnalysis, remoteTargets []RegisteredRemoteTarget, remoteTargetRegistryAvailable bool) (hardStopMatch, bool) {
+func matchSSHHardStop(command string, analysis shellAnalysis, remoteTargets []RegisteredRemoteTarget, remoteTargetRegistryAvailable bool, allowScripts ...bool) (hardStopMatch, bool) {
 	for _, rule := range hardStopRules {
+		if rule.id == ReasonOpaqueShellEffect && len(allowScripts) > 0 && allowScripts[0] {
+			continue
+		}
 		if rule.matchSSH == nil {
 			continue
 		}

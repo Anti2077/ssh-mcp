@@ -954,7 +954,7 @@ func TestBridgeRejectsRemovedLegacyExecutionMethods(t *testing.T) {
 	}
 	defer client.Close(context.Background())
 
-	for _, method := range []string{"operation.approve", "maintenance.start"} {
+	for _, method := range []string{"operation.approve", "maintenance.start", "approval.resolve"} {
 		var result runner.Result
 		if err := client.Call(context.Background(), method, struct{}{}, &result); !errors.Is(err, bridge.ErrMethodNotFound) {
 			t.Fatalf("Call(%q) error = %v，期望 ErrMethodNotFound", method, err)

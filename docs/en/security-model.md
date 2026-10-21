@@ -4,6 +4,8 @@
 
 The security objective of `ssh-mcp` is to constrain AI remote operations strictly to explicitly user-registered targets, and to halt dispatch on identifiable high-risk command categories before they touch the network.
 
+Targets now use [three permission tiers](permissions.md): `read_only`, `confirm` (default, including migration), and `full`. Writes, scripts, elevation and unknown commands in `confirm` require one-use local TUI approval. `opaque_shell_effect` applies only to `read_only`; other recognized hard stops remain in all tiers. Static checks are not an OS sandbox and do not prove arbitrary script contents safe.
+
 ---
 
 ## 1. Trust Boundaries
@@ -69,7 +71,7 @@ If any check fails, the request is rejected immediately with a `not_dispatched` 
 
 ## 3. The 11 Built-in Hard Guardrails
 
-The daemon implements 11 hard-coded lexical and structural inspection guardrails. If a command matches any guardrail, it is rejected **prior to dispatch**:
+The daemon implements the following lexical and structural inspection guardrails. A match is rejected **prior to dispatch**; `opaque_shell_effect` is enabled only in the `read_only` tier, while the remaining recognized rules apply in every tier:
 
 | Rule ID | Interception Scope |
 | :--- | :--- |
