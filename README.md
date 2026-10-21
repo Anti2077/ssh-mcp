@@ -1,127 +1,129 @@
 # ssh-mcp
 
-> 本分支：[Anti2077/ssh-mcp](https://github.com/Anti2077/ssh-mcp)，新增私钥登录、本地口令解锁和键盘菜单。[使用说明](docs/private-key-auth.md)。现有截图展示上游旧界面。
+让 Codex 等支持本地 stdio MCP 的 AI 客户端连接你登记的 Linux 服务器，执行命令、查看日志、读取文件和查询数据库。
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[English](README_EN.md) · [快速开始](docs/quickstart.md) · [使用指南](docs/usage.md) · [工具参考](docs/mcp-tools.md)
 
-[English Documentation](README_EN.md) | [中文说明](README.md)
+> 本仓库是 [lswzw/ssh-mcp](https://github.com/lswzw/ssh-mcp) 的社区分支，保留上游历史与 GPL-3.0 许可证，感谢原作者的工作。此分支增加私钥登录和键盘菜单，并修复 macOS 长路径与保存反馈问题。
+>
+> **当前为源码预览版，尚未发布本分支的预编译 Release。** 请按下面步骤编译；上游发行文件不包含本分支新增功能。
 
-**Local SSH MCP server for MCP-compatible agents | 面向 AI 运维的本地 MCP 桥接服务**
+## 功能
 
-`ssh-mcp` 是一个可供 **支持 MCP 的 AI Agent/客户端使用的本地 SSH MCP server**，通过 **Model Context Protocol (MCP) over stdio** 让 AI 使用你在本机登记的 Linux SSH 主机、MySQL/MariaDB 和 PostgreSQL 数据库，完成排障、查询、文件查看和文件部署。
+- **SSH 运维**：执行非交互命令、检查服务状态、读取日志；支持密码和本地私钥登录。
+- **加密私钥**：支持 OpenSSH / PEM 格式；口令在本机控制台输入，解锁后的签名器仅缓存于 daemon 内存。
+- **本地管理**：中文 / 英文终端界面，纵向操作菜单、清晰的选中标记和单选项。
+- **文件与数据库**：SFTP 文件读取、校验并部署文件，MySQL / MariaDB / PostgreSQL 查询。
+- **访问边界**：目标须本地登记并启用，SSH 主机指纹须人工核对，凭据库由主密码保护。
+- **macOS 修复**：长安装路径自动缩短 Unix socket 路径；修复重复确认和后台刷新覆盖保存结果的问题。
 
-它不是云端代理，也不监听 HTTP/TCP 服务端口。目标、连接凭据和主机指纹由本地守护进程管理；用户通过 TUI 登记目标，MCP 客户端通过 stdio 调用已登记目标。
+`serve` 是客户端启动的 stdio bridge，按需连接或启动本地 daemon；`manage` 打开用户操作的终端控制台。daemon 管理凭据和远端连接，程序不提供 HTTP 服务端口。
 
-## 界面预览
+~~~text
+AI 客户端 ── MCP / stdio ── ssh-mcp serve ── 本地 daemon ── SSH / SFTP / 数据库
+                                                 ↑
+                                          ssh-mcp manage
+~~~
 
-![ssh-mcp local TUI console | ssh-mcp 本地控制台](docs/assets/console-overview.png)
+## 安装
 
-*本地控制台示例，画面中的地址和账号为文档演示数据。*
+需要 Git、Go（最低版本见 [go.mod](go.mod)，当前为 1.26.5）以及支持本地 stdio MCP 的客户端。本地支持 macOS、Linux 和 Windows；远端 SSH 命令按 Linux 语义执行。
 
-![ssh-mcp credential unlock screen | ssh-mcp 解锁界面](docs/assets/console-dashboard.png)
+### macOS / Linux
 
-*凭据库锁定时的本地管理界面。*
-
-## 为什么使用
-
-- **一个入口完成日常运维**：SSH 命令、SQL、受限文件读取、文件部署和 SSH 工作会话都通过 MCP 提供。
-- **目标明确**：只能访问本地登记且启用的目标，不扫描网络，也不会把凭据交给 AI 或 MCP 客户端。
-- **安全边界清楚**：常规运维请求直接执行；格式化磁盘、破坏系统目录、无条件批量写入等固定高危类别在派发前拦截；每个 SSH 目标还可以配置正则黑名单。
-- **部署可核验**：文件部署先校验大小和 SHA-256，再创建临时文件、备份现有文件并激活新文件；结果未知时保留核验和人工恢复所需的信息，不会自动重试。
-- **本地跨平台**：程序可运行在 Linux、macOS 和 Windows；远端 SSH 当前支持 Linux 命令语义。
-
-## 工作原理
-
-```mermaid
-flowchart LR
-    C["MCP-compatible Agent / client"] -->|MCP / stdio| B["ssh-mcp bridge"]
-    B --> D["本地 daemon"]
-    U["本地 TUI"] --> D
-    D --> S["登记目标与凭据库"]
-    D --> R["SSH / SFTP / MySQL / PostgreSQL"]
-    R --> D --> B --> C
-```
-
-`serve` 是 MCP 客户端使用的 stdio bridge。它按需连接或启动本机 daemon；daemon 独占本地状态、凭据和远程连接。`manage` 打开 TUI，用于解锁凭据库、登记目标和执行备份。远端结果以结构化 MCP 数据返回，并标记为不可信远端输出。
-
-## 快速开始
-
-### 通过 AI 自动安装
-
-把下面这句话发送给一个具备终端和文件操作权限、并能配置本地 MCP server 的 Agent：
-
-```bash
-请从 https://github.com/lswzw/ssh-mcp/releases/latest 下载适合当前系统和架构的 ssh-mcp 预编译版本，
-放到稳定路径并注册为当前 MCP 客户端的 stdio server（启动参数为 serve），
-完成后验证工具列表；如果客户端不支持本地 stdio，
-或需要主密码、目标登记、主机指纹确认，请提示我手动完成。
-```
-
-首次使用仍需在本地 TUI 中设置主密码、登记目标并确认 SSH 主机指纹；只有支持启动本地 stdio MCP server 的客户端可以直接接入。
-
-### 手工安装或编译方法
-
-发布页提供预编译版本时，下载与本机平台匹配的文件即可；文件名和下载地址见 [安装与运行](docs/installation.md)。没有匹配版本时再从源码编译。
-
-需要 Go `1.26.5`、一个支持 stdio MCP 的 Agent/客户端，以及一个可打开交互终端的本地桌面环境。
-
-```bash
-git clone https://github.com/lswzw/ssh-mcp.git
+~~~bash
+git clone https://github.com/Anti2077/ssh-mcp.git
 cd ssh-mcp
 make build
-./bin/ssh-mcp manage
-```
+mkdir -p "$HOME/.local/share/ssh-mcp"
+chmod 700 "$HOME/.local/share/ssh-mcp"
+install -m 700 ./bin/ssh-mcp "$HOME/.local/share/ssh-mcp/ssh-mcp"
+"$HOME/.local/share/ssh-mcp/ssh-mcp" manage
+~~~
 
-首次打开 TUI 时设置主密码，然后添加并验证 SSH 或数据库目标（主页选择“切换语言”可在中文与英文界面之间切换，偏好会自动持久化保存）。验证完成后，按所用 Agent/客户端的配置格式接入 stdio MCP server。通用配置契约如下（字段名可能因客户端而异）：
+`make build` 编译当前系统和架构的程序；`mkdir -p` 创建稳定安装目录，`chmod 700` 仅允许当前用户访问，`install -m 700` 复制程序并设置执行权限。`manage` 进入本地管理控制台。
 
-```text
-transport: stdio
-command: /absolute/path/to/bin/ssh-mcp
-args: ["serve"]
-```
+状态数据库和审计日志保存在**可执行文件旁边**，应先固定安装路径再登记服务器。已有安装不要直接移动：先停止 daemon 并按[迁移说明](docs/installation.md#文件位置)备份。
 
-下面是 Codex CLI 的注册示例：
+### Windows PowerShell
 
-```bash
-codex mcp add ssh-mcp -- "$PWD/bin/ssh-mcp" serve
+安装 Git 和 Go 后执行：
+
+~~~powershell
+git clone https://github.com/Anti2077/ssh-mcp.git
+cd ssh-mcp
+go build -o bin/ssh-mcp.exe ./cmd/ssh-mcp
+$installDir = Join-Path $env:LOCALAPPDATA 'ssh-mcp'
+New-Item -ItemType Directory -Force $installDir | Out-Null
+Copy-Item .\bin\ssh-mcp.exe (Join-Path $installDir 'ssh-mcp.exe')
+& (Join-Path $installDir 'ssh-mcp.exe') manage
+~~~
+
+`go build -o` 指定输出文件；程序固定放到当前用户本地应用数据目录，MCP 配置使用该文件的完整绝对路径。
+
+## 首次配置
+
+1. 在控制台设置主密码或解锁凭据库。
+2. 进入“管理服务器与数据库”，`Tab` 切到操作菜单，用 `↑↓` 选择“新增 SSH”，`Enter` 打开。
+3. 填写服务器 IP、端口、用户名；选择“密码登录”或“私钥登录”。私钥路径可用 `~/.ssh/id_ed25519`。
+4. 选择“验证并保存”；加密私钥的口令只在本机输入。
+5. 与可信渠道核对服务器主机指纹，再选择信任并验证。看到“目标验证通过，配置已保存”后完成登记。
+
+目标列表和纵向操作菜单之间用 `Tab` 切换焦点，组内用 `↑↓` 移动，`Enter` 执行，`Esc` 返回。表单用 `Tab / Shift+Tab` 切换字段，`←→` 调整单选项。详见[私钥认证与菜单操作](docs/private-key-auth.md)。
+
+## 接入 MCP 客户端
+
+通用 stdio 配置示例（command 替换为真实绝对路径）：
+
+~~~json
+{
+  "mcpServers": {
+    "ssh-mcp": {
+      "command": "/absolute/path/to/ssh-mcp",
+      "args": ["serve"]
+    }
+  }
+}
+~~~
+
+不同客户端的外层字段可能不同；必需信息是本地可执行文件路径和参数 `serve`。只有支持启动本地 stdio 进程的客户端可以接入。
+
+### Codex CLI
+
+~~~bash
+codex mcp add ssh-mcp -- "$HOME/.local/share/ssh-mcp/ssh-mcp" serve
 codex mcp get ssh-mcp
-```
+~~~
 
-在所用 Agent/客户端的任务中明确说明“使用 ssh-mcp”，例如：
+`add ssh-mcp` 注册这个名称；-- 后是程序路径及其参数；`get` 查看注册配置。重新加载客户端或开启新会话，再要求列出 ssh-mcp 工具并调用 `list_targets`；仅看到注册配置不代表连接验证完成。命令格式参考 [Codex 官方 MCP 文档](https://developers.openai.com/codex/mcp)。
 
-```text
-使用 ssh-mcp 检查已登记生产主机的磁盘空间，并报告占用最高的目录。
-```
+## 让 AI 做什么
 
-完整步骤见 [快速开始](docs/quickstart.md)，工具参数见 [MCP 工具参考](docs/mcp-tools.md)。
+~~~text
+使用 ssh-mcp 列出已登记目标和能力，再检查我指定测试服务器的
+系统负载、内存和磁盘。仅执行只读命令，不重启服务、不修改配置。
+~~~
 
-## 支持范围
+~~~text
+使用 ssh-mcp 查看测试服务器 example.service 最近 200 行日志，
+定位启动失败原因。限制输出长度，报告命令、退出码和关键错误。
+~~~
 
-| 范围 | 支持内容 |
-| --- | --- |
-| 本地宿主机 | Linux、macOS、Windows |
-| 远端 SSH | 登记的 IP、直连账号密码或本地私钥、已确认主机指纹；远端命令按 Linux 语义执行 |
-| 数据库 | MySQL/MariaDB、PostgreSQL，使用 `IP:端口` 登记 |
-| 认证方式 | SSH 支持密码与本地私钥认证；数据库分别配置只读账号和可选可写账号 |
-| MCP 客户端 | 支持启动本地 stdio MCP server 的 Agent/客户端；Codex CLI 仅作为配置示例 |
-| MCP 传输 | stdio；本地 daemon 使用操作系统本地 IPC |
+先用 `list_targets` / `describe_target_capability` 确认目标，再使用 `run_ssh`、`read_ssh_file` 等工具。更多[日志、测试与数据库示例](docs/usage.md)见使用指南。
 
-SSH agent、远端 Windows 或 macOS 命令语义、交互式 TTY、独立或持久端口转发和未登记目标不在当前支持范围内；命令中的静态 SSH 转发仍须指向已登记目标并通过策略检查，动态转发会被拒绝。
+## 限制与维护
 
-## 文档
+- 远端目标当前按 IP 登记；不支持 `~/.ssh/config` 别名、ssh-agent、硬件密钥或交互式 TTY。
+- 主密码、SSH 密码、私钥口令和主机指纹确认由用户在本地完成，不要将凭据贴入 AI 对话。
+- 命令与 SQL 有固定高危类别拦截，但不代表任意命令均安全；部署和测试命令仍可能修改远端状态。
+- `unlock_required` / `ssh_key_unlock_required`：在同一安装路径运行 `manage` 解锁，再重新发起操作；请求不会自动重放。
+- `status` 查看 daemon 状态，`stop` 停止空闲 daemon。有活动 bridge 时先关闭客户端会话。
+- macOS 默认自动打开系统 Terminal；可配置 `SSH_MCP_TERMINAL`，更改后需重启 daemon。见[安装与运行](docs/installation.md)。
 
-- [文档目录](docs/README.md)
-- [快速开始](docs/quickstart.md)
-- [使用指南](docs/usage.md)
-- [安装与运行](docs/installation.md)
-- [目标配置](docs/configuration.md)
-- [MCP 工具参考](docs/mcp-tools.md)
-- [安全模型与限制](docs/security-model.md)
-- [日常维护](docs/operations.md)
-- [工作原理与架构](docs/architecture.md)
-- [参与贡献](docs/contributing.md)
-- [开源发布清单](docs/open-source-release.md)
+## 更多文档
 
-## 许可证
+[文档目录](docs/README.md) · [安装与迁移](docs/installation.md) · [目标配置](docs/configuration.md) · [MCP 工具](docs/mcp-tools.md) · [安全模型](docs/security-model.md) · [日常维护](docs/operations.md) · [贡献指南](CONTRIBUTING.md)
 
-本项目使用 [GNU General Public License v3.0](LICENSE) 发布。
+## 许可证与致谢
+
+基于 [lswzw/ssh-mcp](https://github.com/lswzw/ssh-mcp) 继续开发，原始作者与贡献记录保留在 Git 历史中。整体按 [GNU GPL v3.0](LICENSE) 发布，第三方依赖遵循各自许可证。

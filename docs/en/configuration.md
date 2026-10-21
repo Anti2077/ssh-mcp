@@ -15,7 +15,7 @@ Open Servers and databases from the dashboard. Use Tab to select Add SSH or Edit
 | **IP** | Remote IPv4 or IPv6 address. (Domain names/hostnames are currently not accepted to prevent DNS rebinding attacks). |
 | **SSH Port** | Target SSH port (default: `22`). |
 | **Username / Password** | Authentication credentials. Leave password blank when editing to retain existing encrypted credentials. |
-| **Authentication / Private key path** | Choose `password` or `private_key` with Left/Right. Enter an absolute local key path or `~/` path. |
+| **Authentication / Private key path** | Choose Password or Private key with Left/Right. Enter an absolute local key path or `~/` path. |
 | **Command Blacklist** | Comma-separated Go RE2 regular expressions. Matching commands are blocked immediately. |
 | **Description / Environment** | Local metadata for operator context and agent discovery (e.g., `production`, `staging`). |
 | **Allow File Operations** | Boolean (`true`/`false`). Controls access to `read_ssh_file` and `deploy_ssh_binary`. Defaults to `true`. |

@@ -3,3 +3,22 @@
 .codex
 .agents
 /work/
+
+# Local credentials, state, logs, backups and build artifacts
+state.db
+state.db-*
+audit.log*
+instance.lock
+.ssh-mcp-runtime/
+.ssh/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+*.backup
+*.bak
+/dist/
+.DS_Store

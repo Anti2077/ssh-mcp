@@ -21,21 +21,7 @@ The project is developed with Go `1.26.5` (as pinned in `go.mod`). `ssh-mcp` doe
 
 ## Downloading Prebuilt Releases
 
-You can download prebuilt binaries directly from [GitHub Releases](https://github.com/lswzw/ssh-mcp/releases). The `latest/download` links always resolve to the newest release:
-
-| Platform | Binary Name | Direct Download Link |
-| :--- | :--- | :--- |
-| **Linux amd64** | `ssh-mcp-linux-amd64` | [`releases/latest/download/ssh-mcp-linux-amd64`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-linux-amd64) |
-| **macOS arm64** | `ssh-mcp-darwin-arm64` | [`releases/latest/download/ssh-mcp-darwin-arm64`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-darwin-arm64) |
-| **Windows amd64** | `ssh-mcp-windows-amd64.exe` | [`releases/latest/download/ssh-mcp-windows-amd64.exe`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-windows-amd64.exe) |
-
-On Linux and macOS, grant execution permissions after downloading:
-```bash
-chmod +x ssh-mcp-linux-amd64
-mv ssh-mcp-linux-amd64 /usr/local/bin/ssh-mcp # Or your preferred PATH directory
-```
-
----
+This fork is a source preview with no prebuilt releases yet. Build from source. Future binaries will appear at [Anti2077/ssh-mcp Releases](https://github.com/Anti2077/ssh-mcp/releases). Upstream binaries do not include these additions. See the [README](../../README_EN.md#build-and-install) for stable installation paths and Windows instructions.
 
 ## Building from Source
 
@@ -119,6 +105,7 @@ bin/
 ```
 
 - **`.ssh-mcp-runtime/`**: Contains ephemeral Unix domain sockets and PID files. It should NOT be backed up or copied.
+- **Long macOS installation paths**: Ephemeral runtime files automatically use `/private/tmp/ssh-mcp-<uid>-<installation-directory-hash>/` when the usual socket path would exceed the platform limit. This directory must belong to the current user with permissions `0700`. Each installation uses a separate directory; persistent state, audit logs, and the instance lock remain beside the executable.
 - **Permissions**: `ssh-mcp` adheres to OS default umask and permissions. Ensure the directory is placed where only trusted local OS users have read/write access.
 
 ---

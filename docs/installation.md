@@ -13,15 +13,7 @@ Go 版本使用仓库 `go.mod` 声明的 `1.26.5`。程序不需要云端或特�
 
 ## 下载预编译版本
 
-发布后可从 [GitHub Releases](https://github.com/lswzw/ssh-mcp/releases) 下载与本机平台匹配的资产。`latest/download` 链接会指向最新发布版本：
-
-| 平台 | 文件 | 直接下载 |
-| --- | --- | --- |
-| Linux amd64 | `ssh-mcp-linux-amd64` | [`releases/latest/download/ssh-mcp-linux-amd64`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-linux-amd64) |
-| macOS arm64 | `ssh-mcp-darwin-arm64` | [`releases/latest/download/ssh-mcp-darwin-arm64`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-darwin-arm64) |
-| Windows amd64 | `ssh-mcp-windows-amd64.exe` | [`releases/latest/download/ssh-mcp-windows-amd64.exe`](https://github.com/lswzw/ssh-mcp/releases/latest/download/ssh-mcp-windows-amd64.exe) |
-
-下载后请确认文件来自项目发布页，并在注册 MCP 前验证文件能正常启动。Linux/macOS 需要为文件设置执行权限；其他 CPU 架构目前请从源码构建。
+本分支目前是源码预览版，尚未发布预编译 Release。请从源码构建。未来发行文件见 [Anti2077/ssh-mcp Releases](https://github.com/Anti2077/ssh-mcp/releases)；上游发行文件不包含本分支新增功能。稳定安装路径与 Windows 步骤见[项目首页](../README.md#安装)。
 
 ## 构建
 
@@ -87,6 +79,8 @@ instance.lock
 ```
 
 `.ssh-mcp-runtime/` 只保存 socket、PID 等可重建运行时文件，不作为备份内容复制。迁移优先使用 TUI 创建的加密备份；若必须手工复制，先停止 daemon，确保 SQLite 的 `state.db-wal`/`state.db-shm` 已合并或一并处理，并复制全部 `audit.log` 轮转归档，再在新路径按客户端重新注册或加载 MCP server。程序沿用操作系统默认文件权限和 umask；请把整个安装目录放在只有受信任本地用户可访问的位置。
+
+macOS 上，如果安装路径过长，程序会自动把这些临时运行文件放到 `/private/tmp/ssh-mcp-<用户ID>-<安装目录哈希>/`，避免 Unix socket 路径超限。该目录必须由当前用户所有，权限为 `0700`；不同安装目录互相隔离。`state.db`、审计日志和实例锁仍保留在程序目录，不需要移动服务器配置。
 
 ## 更新与卸载
 

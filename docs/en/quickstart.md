@@ -1,171 +1,68 @@
-# Quickstart Guide
+# Quickstart
 
-[English](quickstart.md) | [中文说明](../quickstart.md)
+This fork is a source preview without prebuilt releases. Upstream binaries do not include this fork's additions.
 
-This guide walks you through setting up `ssh-mcp` for the first time. The service runs locally on the machine hosting your AI Agent or MCP client, serving tools over the standard `stdio` transport.
+## 1. Build and install
 
----
+Requires Git, Go (minimum in go.mod, currently 1.26.5), an interactive terminal and a client that launches local stdio MCP servers. macOS / Linux:
 
-## Prerequisites
-
-- **Local Machine**: Linux, macOS, or Windows.
-- **Go**: `1.26.5` or later (required only if building from source, as pinned in `go.mod`).
-- **MCP Client**: Any agent or client supporting local stdio MCP servers (e.g., Claude Desktop, Cursor, Codex CLI, Cline, Windsurf).
-- **Interactive Terminal**: An interactive terminal environment capable of running the local TUI console.
-- **Remote Targets**: Remote Linux SSH hosts (IPv4/IPv6), or MySQL/MariaDB and PostgreSQL database instances.
-
-> [!NOTE]
-> SSH targets currently use IP addresses, SSH ports, password or private-key authentication, and pinned host key fingerprints. Database targets use `IP:Port` notation (e.g., `[2001:db8::10]:5432` for IPv6). Hostnames, ssh-agent, and remote Windows/macOS execution semantics are outside the current scope.
-
----
-
-## 1. Get the Binary
-
-### Option A: Download Prebuilt Releases (Recommended)
-Download the binary matching your platform and architecture from [GitHub Releases](https://github.com/lswzw/ssh-mcp/releases/latest). Place it in a stable directory (e.g., `~/.local/bin` or within your project directory). On Linux/macOS, ensure the executable permission is set:
-```bash
-chmod +x ./bin/ssh-mcp
-```
-
-### Option B: Build from Source
-If no prebuilt release matches your platform, compile from the repository root:
-```bash
-git clone https://github.com/lswzw/ssh-mcp.git
+~~~bash
+git clone https://github.com/Anti2077/ssh-mcp.git
 cd ssh-mcp
 make build
-```
-The compiled executable will be located at `bin/ssh-mcp` (or `bin/ssh-mcp.exe` on Windows).
+mkdir -p "$HOME/.local/share/ssh-mcp"
+chmod 700 "$HOME/.local/share/ssh-mcp"
+install -m 700 ./bin/ssh-mcp "$HOME/.local/share/ssh-mcp/ssh-mcp"
+~~~
 
----
+`make build` targets your local OS and architecture. `install -m 700` copies the binary with owner-only permissions. Windows PowerShell instructions are in the [README](../../README_EN.md#build-and-install).
 
-## 2. Initialize the Vault & Register Targets (TUI)
+State and audit files live beside the executable. Choose a stable directory before registering targets. Follow the [migration guide](installation.md) for existing installations; do not overwrite a running executable.
 
-Before your AI agent can perform operations, you must initialize the local encrypted vault and register your infrastructure targets:
+## 2. Register a target
 
-```bash
-./bin/ssh-mcp manage
-```
+~~~bash
+"$HOME/.local/share/ssh-mcp/ssh-mcp" manage
+~~~
 
-In the interactive TUI console, follow these steps:
+1. Set the master password or unlock the vault.
+2. Open target management. `Tab` to the action menu, Up/Down to Add SSH or Add database, then `Enter`.
+3. `Enter` the IP, port and username. Choose password or private-key authentication with Left/Right. Key paths accept an absolute path or ~/... .
+4. `Tab` to Verify and save, then `Enter`. `Enter` an encrypted key's passphrase locally if requested.
+5. Check the SSH fingerprint against a trusted source before trusting it. Up/Down selects the confirmation action; Back is selected by default. Wait for the saved message.
 
-1. Select **Unlock credentials** using Up/Down or Tab, then Enter to initialize or unlock the vault.
-2. Open **Servers and databases**, then Tab to **Add SSH** or **Add database** and Enter.
-3. Fill in the form. For SSH, choose password or private-key authentication using Left/Right.
-4. Tab to **Verify and save**, then Enter. Encrypted keys prompt for their passphrase locally.
-5. Review the host fingerprint, select **Trust and verify**, then Enter. **Back** is selected by default.
-6. Esc returns; select **Exit console** to quit. See [private-key login](private-key-auth.md).
+`Tab` switches between the target list and vertical menu, Up/Down moves within a group and `Enter` executes. Forms use `Tab / Shift+Tab` for fields and Left/Right for radio selections. `Esc` goes back. [Private-key guide](private-key-auth.md).
 
-> [!IMPORTANT]
-> Target credentials and host keys can **only** be configured via the local TUI. The MCP client and AI agents have no administrative ability to register, alter, or delete targets.
+## 3. Register the MCP server
 
----
+Codex CLI example:
 
-## 3. Connect to MCP Clients
-
-`ssh-mcp serve` functions as a stdio MCP bridge. It connects to or automatically spawns the local background daemon on demand.
-
-### Universal Stdio Contract
-- **Transport**: `stdio`
-- **Command**: `/absolute/path/to/bin/ssh-mcp`
-- **Arguments**: `["serve"]`
-
-### Configuration Examples
-
-#### Claude Desktop
-Add `ssh-mcp` to your `claude_desktop_config.json`:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "ssh-mcp": {
-      "command": "/absolute/path/to/bin/ssh-mcp",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-#### Cursor / VS Code (Cline, Roo Code)
-Add to your client's MCP configuration file or UI:
-```json
-{
-  "mcpServers": {
-    "ssh-mcp": {
-      "command": "/absolute/path/to/bin/ssh-mcp",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-#### Codex CLI
-In the repository root or your working terminal, run:
-```bash
-codex mcp add ssh-mcp -- "$PWD/bin/ssh-mcp" serve
+~~~bash
+codex mcp add ssh-mcp -- "$HOME/.local/share/ssh-mcp/ssh-mcp" serve
 codex mcp get ssh-mcp
-```
+~~~
 
-### Specifying Terminal Launcher (Optional)
-If your agent triggers a workflow requiring an interactive terminal (e.g., prompt for unlocking), you can configure the terminal launcher via an environment variable:
-```bash
-# Example for GNOME Terminal on Linux:
-codex mcp remove ssh-mcp
-codex mcp add ssh-mcp \
-  --env SSH_MCP_TERMINAL=gnome-terminal \
-  -- "$PWD/bin/ssh-mcp" serve
-```
-*(macOS and Windows typically select the native terminal emulator automatically. Ensure you stop any running daemon before changes take effect).*
+add registers the server; -- separates client options from the executable and its `serve` argument. `get` lists configuration. Other clients use the same absolute path and argument with their own configuration format; see the [README](../../README_EN.md#configure-an-mcp-client).
 
----
+Reload the client or start a new session, inspect the tool list and call `list_targets`. A configuration listing alone does not verify a successful connection.
 
-## 4. Issue Your First Request
+## 4. First request
 
-Prompt your AI Agent to operate through `ssh-mcp`:
+~~~text
+Use ssh-mcp to list registered targets and describe their capabilities.
+On my selected Linux test server, inspect load, memory and disk using
+read-only commands. Do not modify configuration or restart services.
+~~~
 
-```text
-Use ssh-mcp to check the free memory and disk space across my registered SSH hosts.
-```
+Use `list_targets` and `describe_target_capability` before `run_ssh` or `read_ssh_file`. See the [tool reference](mcp-tools.md) for schemas.
 
-The agent will first call `list_targets` and `describe_target_capability` to verify access permissions, followed by:
+## 5. Status and shutdown
 
-```json
-{
-  "target": "203.0.113.10",
-  "command": "free -m"
-}
-```
+~~~bash
+"$HOME/.local/share/ssh-mcp/ssh-mcp" status
+"$HOME/.local/share/ssh-mcp/ssh-mcp" stop
+~~~
 
----
+`status` inspects the daemon and vault state; `stop` stops an idle daemon. Close active client sessions first.
 
-## 5. Daemon Verification & Shutdown
-
-Check daemon health and active bridge sessions:
-```bash
-./bin/ssh-mcp status
-```
-
-Gracefully stop the daemon:
-```bash
-./bin/ssh-mcp stop
-```
-
-If there are active MCP client connections, normal `stop` will refuse to terminate. To forcibly disconnect all sessions, run:
-```bash
-./bin/ssh-mcp stop --force
-```
-*(Requires typing `yes` twice in an interactive terminal. Stopping the daemon never deletes targets or stored credentials).*
-
----
-
-## Troubleshooting FAQ
-
-| Problem | Cause / Solution |
-| :--- | :--- |
-| **`unlock_required` error** | The vault is locked. Run `./bin/ssh-mcp manage`, select Unlock credentials or Unlock SSH private key, and enter the requested password locally. |
-| **`Target not found` error** | The target is unregistered or disabled. Register it via the TUI console; MCP tools cannot auto-discover unwhitelisted hosts. |
-| **SSH Host Fingerprint Changed** | Security protection against MITM. Stop operations, verify the remote host identity, and re-confirm the fingerprint in the TUI. |
-| **Database Write Denied** | The target is configured in read-only mode. Configure a writable database user in the TUI. |
-| **TUI fails to pop up automatically** | Check your desktop terminal configuration or specify `SSH_MCP_TERMINAL` in the MCP environment. |
+For `unlock_required` / `ssh_key_unlock_required`, run `manage` from the same installation, unlock locally and retry. Target configuration and host trust are user-controlled. Keep passwords and key passphrases outside AI conversations. For terminal launchers, updates and troubleshooting, see [installation](installation.md).

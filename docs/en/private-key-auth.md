@@ -1,6 +1,6 @@
 # Private-key login and keyboard menus
 
-This fork adds SSH private-key authentication and keyboard menus. Use Up/Down or Tab to select a dashboard action and Enter to open it. In Targets, use Up/Down for targets and Tab or Left/Right for actions. Forms expose Verify and save / Cancel buttons reachable with Tab and Shift+Tab. Esc goes back. Legacy letter shortcuts remain compatible but are optional.
+This fork adds SSH private-key authentication and keyboard menus. Use Up/Down or Tab to select a dashboard action and Enter to open it. In Targets, Tab switches focus between the target list and the vertical action menu; Up/Down moves within a group and Enter executes. Forms expose Verify and save / Cancel buttons reachable with Tab and Shift+Tab. Esc goes back. Legacy letter shortcuts remain compatible but are optional.
 
 For SSH, select `private_key` with Left/Right in Authentication and enter an absolute local key path or `~/.ssh/id_ed25519`. OpenSSH and PEM keys supported by the Go SSH library may be encrypted or unencrypted. The local daemon reads the key file; only its path is stored as local metadata. Key files and passphrases are not stored in the database, backups, audit logs, or MCP responses. Back up key files separately.
 

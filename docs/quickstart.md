@@ -1,117 +1,79 @@
 # 快速开始
 
-本指南适合第一次安装 `ssh-mcp` 的用户。服务需要运行在 MCP Agent/客户端所在的本机上，并通过 stdio 向支持该传输方式的客户端提供 MCP 工具。
+本分支目前从源码安装，尚无预编译 Release。上游发行文件不含本分支新增功能。
 
-## 准备环境
+## 1. 编译并固定安装路径
 
-- Linux、macOS 或 Windows 本机。
-- Go `1.26.5`，版本以仓库 `go.mod` 为准。
-- 已安装并可以配置本地 stdio MCP server 的 Agent/客户端（例如 Codex CLI）。
-- 可打开交互终端的桌面环境，用于运行本地 TUI。
-- 要管理的远端：Linux SSH 主机，或 MySQL/MariaDB、PostgreSQL 数据库。
+需要 Git、Go（最低版本见 go.mod，当前 1.26.5）及支持本地 stdio MCP 的客户端。macOS / Linux：
 
-SSH 目标使用 IP、端口、密码或本地私钥和主机指纹；数据库目标使用 `IP:端口`（IPv6 使用方括号，例如 `[2001:db8::10]:5432`）。主机名、ssh-agent 和远端 Windows/macOS 命令语义不在当前支持范围内。
-
-## 获取程序
-
-有对应发布版本时，优先从 [GitHub Releases](https://github.com/lswzw/ssh-mcp/releases) 下载预编译文件；平台与文件名见 [安装与运行](installation.md#下载预编译版本)。下载后将文件放在稳定路径，Linux/macOS 需要设置执行权限。
-
-如果没有匹配的发布文件，再按下面步骤从源码构建。
-
-在仓库根目录执行：
-
-```bash
+~~~bash
+git clone https://github.com/Anti2077/ssh-mcp.git
+cd ssh-mcp
 make build
-```
+mkdir -p "$HOME/.local/share/ssh-mcp"
+chmod 700 "$HOME/.local/share/ssh-mcp"
+install -m 700 ./bin/ssh-mcp "$HOME/.local/share/ssh-mcp/ssh-mcp"
+~~~
 
-程序会生成到 `bin/ssh-mcp`；Windows 下文件名为 `bin/ssh-mcp.exe`。需要同时生成项目提供的三个发布目标时执行 `make`，产物位于 `bin/`。
+`make build` 编译本机版本；`install -m 700` 复制到稳定目录并设置仅当前用户可访问。Windows PowerShell 步骤见[项目首页](../README.md#安装)。
 
-## 打开本地控制台
+程序将数据库和审计日志放在可执行文件旁边，不同安装目录有不同的目标库。已有安装请先看[备份与迁移](installation.md#文件位置)，不要直接覆盖正在运行的程序。
 
-```bash
-./bin/ssh-mcp manage
-```
+## 2. 登记目标
 
-在 TUI 中按以下顺序操作：
+~~~bash
+"$HOME/.local/share/ssh-mcp/ssh-mcp" manage
+~~~
 
-1. 主页用 `↑↓` / `Tab` 选择“解锁凭据库”，按 `Enter` 设置主密码或解锁。
-2. 选择“管理服务器与数据库”，按 `Enter`；用 `Tab` 选择“新增 SSH”或“新增数据库”。
-3. 填写表单；SSH 可用 `←→` 选择密码或私钥认证。私钥模式填写本机路径。
-4. `Tab` 到“验证并保存”，按 `Enter`；加密私钥会在本地口令页要求解锁。
-5. 核对 SSH 主机指纹后，用 `←→` 选“信任并验证连接”，按 `Enter`。默认“返回”不会信任。
+`manage` 连接或启动本地 daemon，进入交互控制台。在终端内：
 
-`Esc` 返回，主页选择“退出控制台”退出。目标配置和密钥口令由用户在本地完成，详见[私钥登录](private-key-auth.md)。
+1. 设置主密码或解锁凭据库。
+2. 进入“管理服务器与数据库”，`Tab` 切到操作菜单，`↑↓` 选“新增 SSH”或“新增数据库”，`Enter` 打开。
+3. 填写目标。SSH 使用 IP、端口和用户名；`←→` 选择密码或私钥认证。私钥填写绝对路径或 `~/.ssh/id_ed25519`。
+4. `Tab` 到“验证并保存”，`Enter` 提交；加密私钥的口令在本地输入。
+5. 核对 SSH 指纹后，`↑↓` 选择“信任并验证连接”，`Enter` 确认。默认选“返回”。等待明确的保存成功提示。
 
-## 接入 MCP 客户端
+`Tab` 在目标列表和纵向操作菜单间切换，`↑↓` 在当前组移动；表单用 `Tab / Shift+Tab` 切字段，`←→` 调整单选项，`Esc` 返回。[私钥说明](private-key-auth.md)。
 
-`serve` 使用 stdio MCP。任何能启动本地 stdio MCP server 的 Agent/客户端都可以接入。按客户端的配置格式填写以下通用契约（字段名可能略有不同）：
+## 3. 注册 MCP
 
-```text
-transport: stdio
-command: /absolute/path/to/bin/ssh-mcp
-args: ["serve"]
-```
+Codex CLI 示例：
 
-其中 `command` 必须是可执行文件的绝对路径；`args` 只需传入 `serve`。客户端配置完成后即可加载 `ssh-mcp` 工具。
-
-### Codex CLI 示例
-
-在仓库根目录执行：
-
-```bash
-codex mcp add ssh-mcp -- "$PWD/bin/ssh-mcp" serve
+~~~bash
+codex mcp add ssh-mcp -- "$HOME/.local/share/ssh-mcp/ssh-mcp" serve
 codex mcp get ssh-mcp
-```
+~~~
 
-`serve` 是 stdio MCP bridge。它会在需要时连接或启动本地 daemon，不需要手动启动网络服务。其他客户端请使用其对应的 MCP server 配置或注册命令。
+add 注册服务，-- 后为可执行文件及参数，`serve` 是 stdio bridge；`get` 查看配置。其他客户端填写同一绝对路径与参数 `serve`，具体配置格式见[项目首页](../README.md#接入-mcp-客户端)。
 
-如果 TUI 无法自动打开终端，可先停止已有 daemon，再在客户端配置中指定终端启动器。例如下面仍以 Codex CLI 为例（Linux）：
+重新加载客户端或开启新会话后，让 AI 列出 ssh-mcp 工具并调用 `list_targets`；有配置不等于工具连接已验证。
 
-```bash
-./bin/ssh-mcp stop
-codex mcp remove ssh-mcp
-codex mcp add ssh-mcp \
-  --env SSH_MCP_TERMINAL=gnome-terminal \
-  -- "$PWD/bin/ssh-mcp" serve
-```
+## 4. 第一次请求
 
-macOS 和 Windows 通常可以省略该环境变量，让程序自动选择系统终端。必须先停止已有 daemon，新的 `SSH_MCP_TERMINAL` 才会在下次启动时生效。完整规则见 [安装与运行](installation.md)。
+~~~text
+使用 ssh-mcp 列出已登记目标，再检查我指定测试服务器的负载、
+内存和磁盘。先查看目标能力，只读排查，不修改配置或重启服务。
+~~~
 
-## 发起第一次请求
+推荐先调用 `list_targets`、`describe_target_capability`，再调用 `run_ssh` 或 `read_ssh_file`。详见[使用指南](usage.md)。
 
-在所用 MCP Agent/客户端的任务中明确要求使用 `ssh-mcp`：
+## 5. 状态与停止
 
-```text
-使用 ssh-mcp 查看已登记 SSH 主机的内存和磁盘使用情况。
-```
+~~~bash
+"$HOME/.local/share/ssh-mcp/ssh-mcp" status
+"$HOME/.local/share/ssh-mcp/ssh-mcp" stop
+~~~
 
-建议让 Agent 先调用 `list_targets` 和 `describe_target_capability`，确认目标和能力后再执行操作。工具调用必须使用与 schema 一致的 JSON 对象，例如：
-
-```json
-{"target":"203.0.113.10","command":"free -m"}
-```
-
-## 验证与停止
-
-```bash
-./bin/ssh-mcp status
-./bin/ssh-mcp stop
-```
-
-有活动 MCP bridge 会话时，普通 `stop` 会拒绝停止。确认要中断所有客户端会话时，在交互终端执行：
-
-```bash
-./bin/ssh-mcp stop --force
-```
-
-该命令要求连续两次输入 `yes`。停止服务不会删除本地目标和凭据。
+`status` 查看 daemon、锁定和 bridge 状态，`stop` 停止空闲 daemon。若存在活动客户端连接，先关闭客户端会话再停止。
 
 ## 常见问题
 
-| 现象 | 处理方式 |
+| 现象 | 处理 |
 | --- | --- |
-| 返回 `unlock_required` | 在本地 TUI 选择解锁凭据库或 SSH 私钥，然后重新调用工具。 |
-| 返回目标未找到 | 在 TUI 新增目标并完成连接验证；MCP 不会自动登记目标。 |
-| SSH 指纹变化 | 停止使用该目标，确认远端主机身份后在 TUI 重新验证并保存。 |
-| 数据库写操作被拒绝 | 为该数据库目标填写可写账号；与只读账号相同可以复用只读密码。 |
-| TUI 没有打开 | 检查桌面终端，或设置 `SSH_MCP_TERMINAL` 后重新注册 MCP。 |
+| `unlock_required` / `ssh_key_unlock_required` | 用同一安装目录的 `manage` 在本地解锁，再重新提交请求。 |
+| 目标未找到 | 检查可执行文件路径是否一致，以及目标是否登记并启用。 |
+| 指纹变化 | 先核实服务器身份，再在本地控制台重新验证。 |
+| `manage` 无界面 | 在交互终端运行。需要自定义终端时配置 `SSH_MCP_TERMINAL`，并先停止旧 daemon。 |
+| 其他对话没有工具 | 重新加载客户端或新建会话，确认使用同一 MCP 配置；工具注册由客户端管理。 |
+
+密码、私钥、口令和指纹确认由用户在本地完成，不要贴进 AI 对话。更多限制见[安装与运行](installation.md)和[安全模型](security-model.md)。
