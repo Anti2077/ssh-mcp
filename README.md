@@ -1,5 +1,7 @@
 # ssh-mcp
 
+> 本分支：[Anti2077/ssh-mcp](https://github.com/Anti2077/ssh-mcp)，新增私钥登录、本地口令解锁和键盘菜单。[使用说明](docs/private-key-auth.md)。现有截图展示上游旧界面。
+
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 [English Documentation](README_EN.md) | [中文说明](README.md)
@@ -70,7 +72,7 @@ make build
 ./bin/ssh-mcp manage
 ```
 
-首次打开 TUI 时设置主密码，然后添加并验证 SSH 或数据库目标（主页按 `e` 可在中文与英文界面之间切换，偏好会自动持久化保存）。验证完成后，按所用 Agent/客户端的配置格式接入 stdio MCP server。通用配置契约如下（字段名可能因客户端而异）：
+首次打开 TUI 时设置主密码，然后添加并验证 SSH 或数据库目标（主页选择“切换语言”可在中文与英文界面之间切换，偏好会自动持久化保存）。验证完成后，按所用 Agent/客户端的配置格式接入 stdio MCP server。通用配置契约如下（字段名可能因客户端而异）：
 
 ```text
 transport: stdio
@@ -98,13 +100,13 @@ codex mcp get ssh-mcp
 | 范围 | 支持内容 |
 | --- | --- |
 | 本地宿主机 | Linux、macOS、Windows |
-| 远端 SSH | 登记的 IP、直连账号密码、已确认主机指纹；远端命令按 Linux 语义执行 |
+| 远端 SSH | 登记的 IP、直连账号密码或本地私钥、已确认主机指纹；远端命令按 Linux 语义执行 |
 | 数据库 | MySQL/MariaDB、PostgreSQL，使用 `IP:端口` 登记 |
-| 认证方式 | SSH 当前为密码认证；数据库分别配置只读账号和可选可写账号 |
+| 认证方式 | SSH 支持密码与本地私钥认证；数据库分别配置只读账号和可选可写账号 |
 | MCP 客户端 | 支持启动本地 stdio MCP server 的 Agent/客户端；Codex CLI 仅作为配置示例 |
 | MCP 传输 | stdio；本地 daemon 使用操作系统本地 IPC |
 
-SSH 私钥/agent、远端 Windows 或 macOS 命令语义、交互式 TTY、独立或持久端口转发和未登记目标不在当前支持范围内；命令中的静态 SSH 转发仍须指向已登记目标并通过策略检查，动态转发会被拒绝。
+SSH agent、远端 Windows 或 macOS 命令语义、交互式 TTY、独立或持久端口转发和未登记目标不在当前支持范围内；命令中的静态 SSH 转发仍须指向已登记目标并通过策略检查，动态转发会被拒绝。
 
 ## 文档
 

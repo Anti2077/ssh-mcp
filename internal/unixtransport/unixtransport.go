@@ -219,9 +219,22 @@ func Dial(ctx context.Context, endpoint string) (net.Conn, error) {
 func connectionContext(connection net.Conn) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		buffer := make([]byte, 1)
-		_, _ = connection.Read(buffer)
-		cancel()
+		buffer := make([]byte, 64)
+		for {
+			n, err := connection.Read(buffer)
+			if err != nil {
+				cancel()
+				return
+			}
+			// JSON's terminating newline can arrive after Decode returns.
+			// It is framing whitespace, not a peer disconnect.
+			for _, b := range buffer[:n] {
+				if b != ' ' && b != '\t' && b != '\r' && b != '\n' {
+					cancel()
+					return
+				}
+			}
+		}
 	}()
 	return ctx, cancel
 }

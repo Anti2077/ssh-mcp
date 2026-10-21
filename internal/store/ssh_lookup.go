@@ -19,10 +19,10 @@ func (s *Store) SSHTarget(ctx context.Context, ip string) (SSHTarget, error) {
 	err = s.db.QueryRowContext(ctx, `
 		SELECT ip, connection_mode, ssh_port, COALESCE(login_username, ''),
 			COALESCE(credential_id, ''), command_blacklist_patterns, allow_file_operations,
-			remote_platform, description, environment, enabled, identity_status, revision
+			remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path
 		FROM ssh_targets WHERE ip = ? AND connection_mode = 'direct'`, canonical).Scan(
 		&target.IP, &target.Mode, &target.SSHPort, &target.LoginUsername, &target.CredentialID,
-		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision)
+		&blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SSHTarget{}, ErrTargetNotFound
 	}

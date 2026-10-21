@@ -184,3 +184,24 @@ func TestServerReleasesEndpointLockAfterClose(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = second.Close() })
 }
+
+func TestConnectionContextAllowsTrailingJSONNewlineUntilDisconnect(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	ctx, cancel := connectionContext(server)
+	defer cancel()
+	if _, err := client.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal("framing newline canceled an active request")
+	case <-time.After(20 * time.Millisecond):
+	}
+	client.Close()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("disconnect did not cancel request")
+	}
+}

@@ -77,6 +77,10 @@ type databaseTargetActivator interface {
 	ActivateDatabaseTarget(string)
 }
 
+func WithSSHService(service *sshservice.Service) Option {
+	return func(s *Service) { s.ssh = service }
+}
+
 func WithSSHTransport(transport sshservice.Transport) Option {
 	return func(service *Service) {
 		service.ssh = sshservice.New(service.store, transport)
@@ -339,9 +343,10 @@ func (s *Service) prepareDatabaseInstanceConfiguration(ctx context.Context, inst
 }
 
 type Status struct {
-	Initialized bool   `json:"initialized"`
-	Unlocked    bool   `json:"unlocked"`
-	Language    string `json:"language"`
+	Initialized bool     `json:"initialized"`
+	Unlocked    bool     `json:"unlocked"`
+	Language    string   `json:"language"`
+	PendingKeys []string `json:"pending_keys,omitempty"`
 }
 
 type SetTUILanguageParams struct {
@@ -401,6 +406,7 @@ type SSHTestParams struct {
 }
 
 type SSHTestResult struct {
+	RequiresKeyUnlock               bool   `json:"requires_key_unlock"`
 	Fingerprint                     string `json:"fingerprint"`
 	RequiresFingerprintConfirmation bool   `json:"requires_fingerprint_confirmation"`
 }
@@ -443,6 +449,20 @@ func (s *Service) Handle(ctx context.Context, method string, params json.RawMess
 		err = classifyLocalControlError(err)
 	}()
 	switch method {
+	case "ssh.unlock_key":
+		input, err := decodeParams[struct {
+			Path       string `json:"path"`
+			Passphrase string `json:"passphrase"`
+		}](params)
+		if err != nil {
+			return nil, ipc.ErrInvalidRequest
+		}
+		if _, err := s.sessions.Vault(); err != nil {
+			return nil, err
+		}
+		passphrase := []byte(input.Passphrase)
+		defer secret.Zero(passphrase)
+		return struct{}{}, s.ssh.UnlockKey(input.Path, passphrase)
 	case "status":
 		return s.status(ctx)
 	case "unlock":
@@ -522,7 +542,7 @@ func (s *Service) status(ctx context.Context) (Status, error) {
 	if lang, err := s.store.GetTUILanguage(ctx); err == nil {
 		language = lang
 	}
-	return Status{Initialized: initialized, Unlocked: s.sessions.IsUnlocked(), Language: language}, nil
+	return Status{Initialized: initialized, Unlocked: s.sessions.IsUnlocked(), Language: language, PendingKeys: s.ssh.PendingKeys()}, nil
 }
 
 func (s *Service) setTUILanguage(ctx context.Context, params json.RawMessage) (struct{}, error) {
@@ -595,7 +615,7 @@ func (s *Service) upsertSSHTarget(ctx context.Context, params json.RawMessage) (
 	if err != nil {
 		return struct{}{}, err
 	}
-	if input.Password == "" && existingErr != nil {
+	if input.Target.AuthMethod != "private_key" && input.Password == "" && existingErr != nil {
 		return struct{}{}, ipc.ErrInvalidRequest
 	}
 	affectedTarget := ""
@@ -835,6 +855,9 @@ func (s *Service) testSSHTarget(ctx context.Context, params json.RawMessage) (SS
 	password := []byte(input.Password)
 	defer secret.Zero(password)
 	result, err := s.validateSSHCandidate(ctx, vault, input.Target, password, input.ConfirmedFingerprint)
+	if errors.Is(err, sshservice.ErrKeyUnlockRequired) {
+		return SSHTestResult{RequiresKeyUnlock: true}, nil
+	}
 	if err != nil {
 		return SSHTestResult{}, err
 	}

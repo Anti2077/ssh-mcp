@@ -6,7 +6,7 @@
 | --- | --- |
 | 本地主机 | Linux、macOS、Windows |
 | 默认发布目标 | Linux amd64、macOS arm64、Windows amd64 |
-| 远端 SSH | Linux 命令语义；使用登记的 IP 和密码直连 |
+| 远端 SSH | Linux 命令语义；使用登记的 IP，以密码或本地私钥直连 |
 | 数据库 | MySQL/MariaDB、PostgreSQL |
 
 Go 版本使用仓库 `go.mod` 声明的 `1.26.5`。程序不需要云端或特定模型提供商的 API key，也不监听 HTTP、TCP 或其他公网服务端口。

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -24,7 +25,7 @@ func (s *Store) UpsertSSHTarget(ctx context.Context, target SSHTarget) error {
 		return fmt.Errorf("begin SSH target update: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := ensureCredentialOwnerTx(ctx, tx, normalized.CredentialID, owner); err != nil {
+	if err := ensureSSHTargetCredentialOwner(ctx, tx, normalized, owner); err != nil {
 		return err
 	}
 	if err := upsertSSHTargetTx(ctx, tx, normalized); err != nil {
@@ -44,15 +45,17 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ssh_targets (
-			ip, connection_mode, ssh_port, login_username, credential_id,
+			ip, connection_mode, ssh_port, login_username, credential_id, auth_method, private_key_path,
 			command_blacklist_patterns, allow_file_operations,
 			remote_platform, description, environment, enabled, identity_status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			connection_mode = excluded.connection_mode,
 			ssh_port = excluded.ssh_port,
 			login_username = excluded.login_username,
 			credential_id = excluded.credential_id,
+			auth_method = excluded.auth_method,
+			private_key_path = excluded.private_key_path,
 			command_blacklist_patterns = excluded.command_blacklist_patterns,
 			allow_file_operations = excluded.allow_file_operations,
 			remote_platform = excluded.remote_platform,
@@ -65,6 +68,8 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 				ssh_targets.ssh_port IS NOT excluded.ssh_port OR
 				ssh_targets.login_username IS NOT excluded.login_username OR
 				ssh_targets.credential_id IS NOT excluded.credential_id OR
+				ssh_targets.auth_method IS NOT excluded.auth_method OR
+				ssh_targets.private_key_path IS NOT excluded.private_key_path OR
 				ssh_targets.command_blacklist_patterns IS NOT excluded.command_blacklist_patterns OR
 				ssh_targets.allow_file_operations IS NOT excluded.allow_file_operations OR
 				ssh_targets.remote_platform IS NOT excluded.remote_platform OR
@@ -72,7 +77,7 @@ func upsertSSHTargetTx(ctx context.Context, tx *sql.Tx, target SSHTarget) error 
 				ssh_targets.identity_status IS NOT excluded.identity_status
 			THEN 1 ELSE 0 END,
 			updated_at = excluded.updated_at`,
-		target.IP, target.Mode, target.SSHPort, target.LoginUsername, target.CredentialID,
+		target.IP, target.Mode, target.SSHPort, target.LoginUsername, target.CredentialID, target.AuthMethod, target.PrivateKeyPath,
 		blacklistPatterns, boolToInt(target.AllowFileOperations), target.RemotePlatform, target.Description, target.Environment, enabled, target.IdentityStatus, nowUnix(), nowUnix())
 	if err != nil {
 		return mapConstraintError(err)
@@ -84,7 +89,7 @@ func (s *Store) ListSSHTargets(ctx context.Context) ([]SSHTarget, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT ip, connection_mode, ssh_port, COALESCE(login_username, ''),
 				COALESCE(credential_id, ''), command_blacklist_patterns, allow_file_operations,
-				remote_platform, description, environment, enabled, identity_status, revision
+				remote_platform, description, environment, enabled, identity_status, revision, auth_method, private_key_path
 		FROM ssh_targets WHERE connection_mode = 'direct' ORDER BY ip`)
 	if err != nil {
 		return nil, fmt.Errorf("list SSH targets: %w", err)
@@ -98,7 +103,7 @@ func (s *Store) ListSSHTargets(ctx context.Context) ([]SSHTarget, error) {
 		var blacklistPatterns string
 		var allowFileOperations int
 		if err := rows.Scan(&target.IP, &target.Mode, &target.SSHPort, &target.LoginUsername,
-			&target.CredentialID, &blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision); err != nil {
+			&target.CredentialID, &blacklistPatterns, &allowFileOperations, &target.RemotePlatform, &target.Description, &target.Environment, &enabled, &target.IdentityStatus, &target.Revision, &target.AuthMethod, &target.PrivateKeyPath); err != nil {
 			return nil, fmt.Errorf("scan SSH target: %w", err)
 		}
 		if err := unmarshalCommandBlacklistPatterns(blacklistPatterns, &target.CommandBlacklistPatterns); err != nil {
@@ -430,11 +435,34 @@ func ValidateSSHTargetConfiguration(target SSHTarget) error {
 }
 
 func normalizeSSHTargetFields(target SSHTarget, requireCredential bool) (SSHTarget, error) {
+	if target.AuthMethod == "" {
+		target.AuthMethod = "password"
+	}
+	switch target.AuthMethod {
+	case "password":
+		target.PrivateKeyPath = ""
+	case "private_key":
+		path := strings.TrimSpace(target.PrivateKeyPath)
+		if strings.HasPrefix(path, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return SSHTarget{}, ErrInvalidTarget
+			}
+			path = filepath.Join(home, path[2:])
+		}
+		if !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
+			return SSHTarget{}, ErrInvalidTarget
+		}
+		target.PrivateKeyPath = filepath.Clean(path)
+		target.CredentialID = ""
+	default:
+		return SSHTarget{}, ErrInvalidTarget
+	}
 	ip, err := canonicalIP(target.IP)
 	if target.IdentityStatus == "" {
 		target.IdentityStatus = SSHIdentityUnconfirmed
 	}
-	if err != nil || target.Mode != SSHDirect || target.LoginUsername == "" || (requireCredential && target.CredentialID == "") {
+	if err != nil || target.Mode != SSHDirect || target.LoginUsername == "" || (requireCredential && target.AuthMethod == "password" && target.CredentialID == "") {
 		return SSHTarget{}, ErrInvalidTarget
 	}
 	if !validSSHIdentityStatus(target.IdentityStatus) {
@@ -599,4 +627,11 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func ensureSSHTargetCredentialOwner(ctx context.Context, tx *sql.Tx, target SSHTarget, owner credentialOwner) error {
+	if target.AuthMethod == "private_key" {
+		return nil
+	}
+	return ensureCredentialOwnerTx(ctx, tx, target.CredentialID, owner)
 }

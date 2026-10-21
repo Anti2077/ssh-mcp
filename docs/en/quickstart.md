@@ -15,7 +15,7 @@ This guide walks you through setting up `ssh-mcp` for the first time. The servic
 - **Remote Targets**: Remote Linux SSH hosts (IPv4/IPv6), or MySQL/MariaDB and PostgreSQL database instances.
 
 > [!NOTE]
-> SSH targets currently use IP addresses, SSH ports, password authentication, and pinned host key fingerprints. Database targets use `IP:Port` notation (e.g., `[2001:db8::10]:5432` for IPv6). Hostnames, SSH private keys/agents, and remote Windows/macOS execution semantics are outside the current scope.
+> SSH targets currently use IP addresses, SSH ports, password or private-key authentication, and pinned host key fingerprints. Database targets use `IP:Port` notation (e.g., `[2001:db8::10]:5432` for IPv6). Hostnames, ssh-agent, and remote Windows/macOS execution semantics are outside the current scope.
 
 ---
 
@@ -48,13 +48,12 @@ Before your AI agent can perform operations, you must initialize the local encry
 
 In the interactive TUI console, follow these steps:
 
-1. **Unlock/Initialize Vault**: Press `u` to set your master password and initialize the credential vault. (On first run, this creates the local SQLite metadata database and encrypted key container).
-2. **Toggle Language (Optional)**: Press `e` on the dashboard to toggle between English and Chinese interface language. Your preference is automatically persisted in the local database.
-3. **Open Targets List**: Press `t` to view targets.
-4. **Add Target**: Press `n` to add an SSH host, or `d` to add a database target.
-5. **Input Details & Save**: Fill in the target IP, port, and credentials, then press `Ctrl+S`. `ssh-mcp` will test the connection immediately.
-6. **Pin Host Fingerprint (SSH)**: On the first connection to an SSH host, review the displayed fingerprint and press `y` to confirm and pin it.
-7. **Exit Console**: Press `Esc` to return and `q` to quit the TUI.
+1. Select **Unlock credentials** using Up/Down or Tab, then Enter to initialize or unlock the vault.
+2. Open **Servers and databases**, then Tab to **Add SSH** or **Add database** and Enter.
+3. Fill in the form. For SSH, choose password or private-key authentication using Left/Right.
+4. Tab to **Verify and save**, then Enter. Encrypted keys prompt for their passphrase locally.
+5. Review the host fingerprint, select **Trust and verify**, then Enter. **Back** is selected by default.
+6. Esc returns; select **Exit console** to quit. See [private-key login](private-key-auth.md).
 
 > [!IMPORTANT]
 > Target credentials and host keys can **only** be configured via the local TUI. The MCP client and AI agents have no administrative ability to register, alter, or delete targets.
@@ -165,7 +164,7 @@ If there are active MCP client connections, normal `stop` will refuse to termina
 
 | Problem | Cause / Solution |
 | :--- | :--- |
-| **`unlock_required` error** | The vault is locked. Run `./bin/ssh-mcp manage`, press `u`, and enter your master password. |
+| **`unlock_required` error** | The vault is locked. Run `./bin/ssh-mcp manage`, select Unlock credentials or Unlock SSH private key, and enter the requested password locally. |
 | **`Target not found` error** | The target is unregistered or disabled. Register it via the TUI console; MCP tools cannot auto-discover unwhitelisted hosts. |
 | **SSH Host Fingerprint Changed** | Security protection against MITM. Stop operations, verify the remote host identity, and re-confirm the fingerprint in the TUI. |
 | **Database Write Denied** | The target is configured in read-only mode. Configure a writable database user in the TUI. |

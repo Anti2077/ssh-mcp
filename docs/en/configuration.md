@@ -8,20 +8,21 @@ All targets, passwords, and security boundaries are managed exclusively through 
 
 ## 1. SSH Target Configuration
 
-In the TUI, press `t` to open the target list, then press `n` to create a new target (or select an existing one and press `Enter` to edit).
+Open Servers and databases from the dashboard. Use Tab to select Add SSH or Edit, then Enter.
 
 | Field | Description |
 | :--- | :--- |
 | **IP** | Remote IPv4 or IPv6 address. (Domain names/hostnames are currently not accepted to prevent DNS rebinding attacks). |
 | **SSH Port** | Target SSH port (default: `22`). |
 | **Username / Password** | Authentication credentials. Leave password blank when editing to retain existing encrypted credentials. |
+| **Authentication / Private key path** | Choose `password` or `private_key` with Left/Right. Enter an absolute local key path or `~/` path. |
 | **Command Blacklist** | Comma-separated Go RE2 regular expressions. Matching commands are blocked immediately. |
 | **Description / Environment** | Local metadata for operator context and agent discovery (e.g., `production`, `staging`). |
 | **Allow File Operations** | Boolean (`true`/`false`). Controls access to `read_ssh_file` and `deploy_ssh_binary`. Defaults to `true`. |
 
 ### Connection Testing & Host Fingerprint Pinning
-Upon pressing `Ctrl+S` to save, `ssh-mcp` immediately tests the connection:
-- **First-time connection**: The server presents the remote host's public key fingerprint. You must manually inspect and confirm it by typing `y`.
+Upon selecting Verify and save and pressing Enter, `ssh-mcp` immediately tests the connection:
+- **First-time connection**: The server presents the remote host's public key fingerprint. You must manually inspect and select Trust and verify and press Enter.
 - **Fingerprint mismatch**: If a previously pinned fingerprint changes, the connection is blocked with a security warning. The target is never blindly trusted.
 - **Target OS**: Remote target semantics must be Linux.
 
@@ -39,7 +40,7 @@ rm /data/.*, cat /etc/passwd, passwd.*
 
 ## 2. Database Target Configuration
 
-In the target list (`t`), press `d` to register a database instance. Supported engines:
+In the target list, select Add database and press Enter to register a database instance. Supported engines:
 - **MySQL / MariaDB** (MySQL 5.7+, 8.0+; MariaDB 10.3+)
 - **PostgreSQL** (version 12+)
 
@@ -61,9 +62,9 @@ In the target list (`t`), press `d` to register a database instance. Supported e
 
 ## 3. Target Lifecycle: Toggle, Delete, & Re-enable
 
-- **Toggle Enable/Disable (`x`)**: Disables or re-enables a target. Re-enabling a disabled target requires pressing `Enter` to re-verify connectivity and fingerprint before saving.
-- **Delete Target (`Delete`)**: Removes the target and its credentials permanently (requires typing `y` to confirm).
-- **Refresh (`r`)**: Reloads the target list from the database.
+- Select **Enable / disable** to change target status. Re-enabling requires editing, verifying, and saving the target again.
+- Select **Delete**, then explicitly select the confirmation button with Left/Right and press Enter.
+- Select **Refresh** to reload the list.
 
 ---
 
@@ -71,14 +72,9 @@ In the target list (`t`), press `d` to register a database instance. Supported e
 
 The master password protects the encrypted credential envelope stored inside `state.db`. Secrets are decrypted in daemon memory only while the vault is unlocked.
 
-The TUI provides built-in vault management commands:
-- **`u`**: Unlock credential vault (or initialize on first run).
-- **`l`**: Lock credential vault immediately (erases decrypted keys from daemon memory).
-- **`p`**: Change master password.
-- **`k`**: Rotate data encryption key (requires typing `ROTATE`).
-- **`b`**: Export an encrypted vault backup.
-- **`o`**: Restore vault from an encrypted backup file.
-- **`e`**: Toggle TUI interface language between English and Chinese (`en` / `zh`), persisted automatically across sessions.
+The dashboard provides menus for backup, restore, changing the master password, rotating the data key, locking the vault, and changing language. Choose with Up/Down or Tab and press Enter. Rotation still requires the confirmation text `ROTATE`.
 
 > [!WARNING]
 > If you lose your master password, the encrypted credentials cannot be recovered by the MCP server or agent. Always store your master password in a password manager and maintain encrypted backups.
+
+See [private-key login and keyboard menus](private-key-auth.md) for local passphrase handling and lifecycle.

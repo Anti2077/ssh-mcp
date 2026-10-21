@@ -5,6 +5,7 @@
 package terminal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -119,7 +121,21 @@ func (l *Launcher) StartWithEnvironment(environment []string, program string, ar
 
 func newLauncher(program string, prefix []string) *Launcher {
 	return &Launcher{program: program, prefix: prefix, start: func(command *exec.Cmd) error {
-		return command.Start()
+		if filepath.Base(command.Path) == "osascript" {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			child := exec.CommandContext(ctx, command.Path, command.Args[1:]...)
+			child.Env = command.Env
+			if err := child.Run(); err != nil {
+				return fmt.Errorf("macOS could not open Terminal; check Automation permissions: %w", err)
+			}
+			return nil
+		}
+		if err := command.Start(); err != nil {
+			return err
+		}
+		go func() { _ = command.Wait() }()
+		return nil
 	}}
 }
 
@@ -206,7 +222,7 @@ func macOSTerminalScript(program string, args, environment []string) string {
 		parts = append(parts, shellQuote(arg))
 	}
 	command := strings.Join(parts, " ")
-	return `tell application "Terminal" to do script "` + escapeAppleScriptString(command) + `"`
+	return `tell application "Terminal"` + "\nactivate\ndo script " + `"` + escapeAppleScriptString(command) + `"` + "\nend tell"
 }
 
 func terminalEnvironmentAssignments(environment []string) []string {

@@ -22,6 +22,6 @@
 
 ## 能力边界速览
 
-`ssh-mcp` 运行在本地，不提供公网服务。当前本地主机支持 Linux、macOS 和 Windows；远端 SSH 只支持登记的 Linux 目标，目标使用 IP、端口、账号密码和已确认的主机指纹。数据库目标使用 `IP:端口`，支持 MySQL/MariaDB 和 PostgreSQL。
+`ssh-mcp` 运行在本地，不提供公网服务。当前本地主机支持 Linux、macOS 和 Windows；远端 SSH 只支持登记的 Linux 目标，目标使用 IP、端口、密码或本地私钥和已确认的主机指纹。数据库目标使用 `IP:端口`，支持 MySQL/MariaDB 和 PostgreSQL。
 
 所有远程操作都必须满足：目标已登记并启用、凭据库已解锁，以及请求没有命中固定拦截或目标级限制。MCP 客户端不能新增目标、修改黑名单或读取凭据。

@@ -47,6 +47,7 @@ const (
 	screenFingerprintConfirm
 	screenTargetDeleteConfirm
 	screenMaintenance
+	screenKeyUnlock
 )
 
 type formKind uint8
@@ -107,11 +108,18 @@ type Model struct {
 	width  int
 	height int
 
-	screen   screen
-	status   control.Status
-	targets  control.TargetsResult
-	selected int
-	notice   string
+	screen        screen
+	status        control.Status
+	targets       control.TargetsResult
+	selected      int
+	menuIndex     int
+	targetAction  int
+	actionFocus   bool
+	confirmAccept bool
+	keyUnlockPath string
+	dismissedKey  string
+	formButton    int
+	notice        string
 
 	input       textinput.Model
 	form        *targetForm
@@ -143,6 +151,9 @@ func (m *Model) setLanguage(lang string) {
 	m.msg = getMessages(lang)
 	if m.screen == screenUnlock {
 		m.input.Prompt = m.msg.UnlockPrompt
+	}
+	if m.screen == screenKeyUnlock {
+		m.input.Prompt = m.label("密钥口令：", "Key passphrase: ")
 	}
 }
 
@@ -185,11 +196,13 @@ func (m *Model) Init() tea.Cmd {
 	if m.client == nil {
 		return nil
 	}
-	return tea.Batch(m.loadStatus(), m.loadTargets())
+	return tea.Batch(m.loadStatus(), m.loadTargets(), pulse())
 }
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case pulseMsg:
+		return m, tea.Batch(m.loadStatus(), pulse())
 	case tea.WindowSizeMsg:
 		m.width, m.height = value.Width, value.Height
 		m.applyLayout()
@@ -208,6 +221,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(message tea.KeyMsg) tea.Cmd {
 	key := message.String()
+	if handled, cmd := m.navigationKey(message, key); handled {
+		return cmd
+	}
 	if key == "ctrl+c" || key == "q" && m.screen == screenDashboard {
 		return tea.Quit
 	}
@@ -255,6 +271,8 @@ func (m *Model) handleKey(message tea.KeyMsg) tea.Cmd {
 		return m.handleTargetDeleteConfirmation(key)
 	case screenMaintenance:
 		return m.handleMaintenanceKey(message, key)
+	case screenKeyUnlock:
+		return m.handleKeyUnlock(message, key)
 	}
 	return nil
 }
@@ -264,6 +282,9 @@ func (m *Model) handleMaintenanceKey(message tea.KeyMsg, key string) tea.Cmd {
 		m.clearMaintenance()
 		m.screen = screenDashboard
 		return nil
+	}
+	if handled, cmd := m.maintenanceNavigation(key); handled {
+		return cmd
 	}
 	if key == "ctrl+s" {
 		m.saveMaintenanceField()
@@ -313,6 +334,9 @@ func (m *Model) handleTargetKey(key string) tea.Cmd {
 }
 
 func (m *Model) handleFormKey(message tea.KeyMsg, key string) tea.Cmd {
+	if handled, cmd := m.formNavigation(message, key); handled {
+		return cmd
+	}
 	if key == "esc" {
 		m.clearForm()
 		m.screen = screenTargets
@@ -409,18 +433,26 @@ func isPasteShortcut(key tea.KeyPressMsg) bool {
 // rejected with a notice and leaves the input untouched.
 func (m *Model) handlePaste(content string) tea.Cmd {
 	switch m.screen {
-	case screenUnlock, screenForm, screenMaintenance:
+	case screenUnlock, screenForm, screenMaintenance, screenKeyUnlock:
 	default:
 		return nil
 	}
 	// unicode.IsSpace also covers the non-breaking and ideographic spaces that
 	// browsers and password managers leave behind in copied text.
 	trimmed := strings.TrimSpace(content)
+	keyPassphrase := m.screen == screenKeyUnlock
+	keyPath := m.screen == screenForm && m.form != nil && m.form.kind == formSSH && m.form.index == 9
+	if keyPassphrase {
+		trimmed = content
+	}
 	switch {
 	case trimmed == "":
 		m.notice = m.msg.PasteEmpty
 		return nil
-	case strings.ContainsFunc(trimmed, unicode.IsSpace):
+	case (keyPassphrase || keyPath) && strings.ContainsFunc(trimmed, unicode.IsControl):
+		m.notice = m.msg.PasteWhitespace
+		return nil
+	case !keyPassphrase && !keyPath && strings.ContainsFunc(trimmed, unicode.IsSpace):
 		m.notice = m.msg.PasteWhitespace
 		return nil
 	}
@@ -451,7 +483,7 @@ func (m *Model) handlePaste(content string) tea.Cmd {
 // disclosure about a value the interface otherwise never reveals.
 func (m *Model) activeSecretField() bool {
 	switch m.screen {
-	case screenUnlock:
+	case screenUnlock, screenKeyUnlock:
 		return true
 	case screenForm:
 		return m.form != nil && m.form.index < len(m.form.fields) && m.form.fields[m.form.index].secret
@@ -465,17 +497,53 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 	if message.err != nil {
 		if message.action == "target_tested" || message.action == "database_tested" {
 			m.clearPendingTarget()
+			if m.screen == screenKeyUnlock && m.form != nil {
+				m.screen = screenForm
+				m.loadCurrentField()
+			}
 		}
 		m.notice = m.msg.LocalControlErrorNotice(message.action, message.err)
+		if message.action == "key_unlocked" {
+			m.notice = m.label("无法解锁私钥，请检查口令、文件和凭据库状态后重试。", "Could not unlock the key. Check its passphrase, file, and vault status, then retry.")
+		}
 		return nil
 	}
-	m.notice = ""
+	if message.action != "status" && message.action != "targets" {
+		m.notice = ""
+	}
 	switch message.action {
 	case "status":
 		m.status = message.value.(control.Status)
+		if !m.status.Unlocked && m.screen == screenKeyUnlock {
+			m.input.SetValue("")
+			m.keyUnlockPath = ""
+			m.clearPendingTarget()
+			m.clearForm()
+			m.screen = screenDashboard
+			m.notice = m.msg.LockedNotice
+		}
+		if m.status.Unlocked && len(m.status.PendingKeys) > 0 && m.status.PendingKeys[0] != m.dismissedKey && (m.screen == screenDashboard || m.screen == screenTargets) {
+			m.beginKeyUnlock(m.status.PendingKeys[0])
+		}
 		if m.status.Language != "" && m.status.Language != m.lang {
 			m.setLanguage(m.status.Language)
 		}
+	case "key_status":
+		status := message.value.(control.Status)
+		if len(status.PendingKeys) > 0 {
+			m.beginKeyUnlock(status.PendingKeys[0])
+		}
+		return nil
+	case "key_unlocked":
+		m.input.SetValue("")
+		m.keyUnlockPath = ""
+		m.dismissedKey = ""
+		if m.pending != nil {
+			return m.call("target_tested", m.pending.testMethod, m.pending.testParams, &control.SSHTestResult{})
+		}
+		m.screen = screenDashboard
+		m.notice = m.label("密钥已解锁，可以重新发起操作。", "Key unlocked. Submit a new operation.")
+		return m.loadStatus()
 	case "targets":
 		m.targets = message.value.(control.TargetsResult)
 		m.clampSelected(m.targetCount())
@@ -505,12 +573,16 @@ func (m *Model) applyRPC(message rpcMsg) tea.Cmd {
 		return m.loadTargets()
 	case "target_tested":
 		result := message.value.(control.SSHTestResult)
+		if result.RequiresKeyUnlock {
+			return m.loadStatusForKey()
+		}
 		if result.RequiresFingerprintConfirmation {
 			if m.pending == nil {
 				m.notice = m.msg.PendingTargetNotFound
 				return nil
 			}
 			m.pending.fingerprint = result.Fingerprint
+			m.confirmAccept = false
 			m.screen = screenFingerprintConfirm
 			return nil
 		}
@@ -559,6 +631,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, m.notice, "")
 	}
 	switch m.screen {
+	case screenKeyUnlock:
+		lines = append(lines, m.label("解锁 SSH 私钥", "Unlock SSH private key"), m.keyUnlockPath, m.input.View(), "", m.label("口令仅用于本地解锁。Enter 解锁 · Esc 返回", "Passphrase is used only locally. Enter unlock · Esc back"))
 	case screenUnlock:
 		lines = append(lines, m.msg.UnlockTitle, m.input.View(), "", m.msg.UnlockHelp)
 	case screenTargets:
@@ -593,7 +667,10 @@ func (m *Model) View() tea.View {
 // textinput component's cursor is relative to its own prompt, so account for
 // the form prefix and the line where the input is rendered here.
 func (m *Model) inputCursor() *tea.Cursor {
-	if m == nil || m.screen != screenUnlock && m.screen != screenForm && m.screen != screenMaintenance {
+	if m == nil || m.screen != screenUnlock && m.screen != screenForm && m.screen != screenMaintenance && m.screen != screenKeyUnlock {
+		return nil
+	}
+	if (m.screen == screenForm || m.screen == screenMaintenance) && m.formButton > 0 {
 		return nil
 	}
 	cursor := m.input.Cursor()
@@ -607,13 +684,21 @@ func (m *Model) inputCursor() *tea.Cursor {
 	line := base + 1
 	prefix := ""
 	switch m.screen {
+	case screenKeyUnlock:
+		line = base + 2
 	case screenForm:
 		prefix = inputLinePrefix
 		if m.form != nil {
 			if m.isCompactLayout() {
 				line = base + 3
 			} else {
-				line = base + 2 + m.form.index
+				line = base + 2
+				for _, index := range m.visibleFields() {
+					if index == m.form.index {
+						break
+					}
+					line++
+				}
 			}
 		}
 	case screenMaintenance:
@@ -709,16 +794,24 @@ func (m *Model) header() string {
 	if m.status.Unlocked {
 		state = m.msg.UnlockedState
 	}
-	return m.msg.ConsoleTitle + "  [" + state + "]"
+	return lipgloss.NewStyle().Bold(true).Render(m.msg.ConsoleTitle) + "  [" + state + "]"
 }
 
 func (m *Model) renderDashboard() []string {
-	if m.isCompactLayout() {
-		return []string{m.msg.DashboardCompactHelp}
+	lines := []string{fmt.Sprintf(m.label("服务器 %d · 数据库 %d", "Servers %d · Databases %d"), len(m.targets.SSH), len(m.targets.Databases)), "", m.label("选择一个操作", "Choose an action")}
+	var rows []string
+	for i, item := range m.dashboardLabels() {
+		rows = append(rows, m.menuRow(item, i == m.menuIndex))
 	}
-	return []string{
-		m.msg.DashboardFullHelp,
+	limit := 0
+	if m.height > 0 {
+		limit = max(1, m.height-7)
+		if m.notice != "" {
+			limit = max(1, limit-2)
+		}
 	}
+	lines = append(lines, selectedRows(rows, m.menuIndex, limit)...)
+	return append(lines, "", m.label("↑↓ / Tab 选择 · Enter 打开 · Ctrl+C 退出", "↑↓ / Tab select · Enter open · Ctrl+C quit"))
 }
 
 func (m *Model) renderTargets() []string {
@@ -728,7 +821,7 @@ func (m *Model) renderTargets() []string {
 	lines := []string{m.msg.TargetsTitle, ""}
 	index := 0
 	for _, target := range m.targets.SSH {
-		lines = append(lines, m.targetMarker(index)+fmt.Sprintf("%s  %s  %s  %s", m.msg.TargetKindSSH, target.IP, target.Mode, m.enabledText(target.Enabled)))
+		lines = append(lines, m.targetMarker(index)+fmt.Sprintf("%s  %s:%d  %s  %s  %s", m.msg.TargetKindSSH, target.IP, target.SSHPort, target.Description, target.AuthMethod, m.enabledText(target.Enabled)))
 		index++
 	}
 	for _, instance := range m.targets.Databases {
@@ -738,7 +831,7 @@ func (m *Model) renderTargets() []string {
 	if index == 0 {
 		lines = append(lines, m.msg.NoTargets)
 	}
-	lines = append(lines, "", m.msg.TargetsHelpFull)
+	lines = append(lines, "", m.targetToolbar())
 	return lines
 }
 
@@ -757,7 +850,7 @@ func (m *Model) renderCompactTargets() []string {
 	if index == 0 {
 		lines = append(lines, m.msg.NoTargets)
 	}
-	return append(lines, "", m.msg.TargetsCompactHelp1, m.msg.TargetsCompactHelp2)
+	return append(lines, "", m.targetToolbar())
 }
 
 func (m *Model) renderForm() []string {
@@ -771,16 +864,17 @@ func (m *Model) renderForm() []string {
 	lines := []string{title, ""}
 	if m.isCompactLayout() {
 		field := m.form.fields[m.form.index]
-		lines = append(lines, fmt.Sprintf("%d/%d  %s", m.form.index+1, len(m.form.fields), compactText(field.label, max(1, m.contentWidth()-6))))
+		lines = append(lines, fmt.Sprintf("%d/%d  %s", m.visibleFieldPosition()+1, len(m.visibleFields()), compactText(field.label, max(1, m.contentWidth()-6))))
 		lines = append(lines, inputLinePrefix+m.input.View())
-		return append(lines, "", m.msg.FormHelpCompact1, m.msg.FormHelpCompact2)
+		return append(lines, "", m.formButtons(), m.label("Tab 选择 · Enter 确认 · Esc 返回", "Tab select · Enter confirm · Esc back"))
 	}
-	for index, field := range m.form.fields {
+	for _, index := range m.visibleFields() {
+		field := m.form.fields[index]
 		value := field.value
 		if field.secret && value != "" {
 			value = m.msg.SecretMasked
 		}
-		if index == m.form.index {
+		if index == m.form.index && m.formButton == 0 {
 			lines = append(lines, inputLinePrefix+m.input.View())
 			if field.hint != "" {
 				lines = append(lines, "  "+field.hint)
@@ -789,7 +883,7 @@ func (m *Model) renderForm() []string {
 			lines = append(lines, "  "+field.label+m.msg.FieldSeparator+value)
 		}
 	}
-	lines = append(lines, "", m.msg.FormHelpFull)
+	lines = append(lines, "", m.formButtons(), m.label("Tab 切换字段和按钮 · Enter 确认 · Esc 返回", "Tab fields and buttons · Enter confirm · Esc back"))
 	return lines
 }
 
@@ -802,7 +896,7 @@ func (m *Model) renderFingerprintConfirmation() []string {
 		"",
 		m.pending.fingerprint,
 		"",
-		m.msg.FingerprintConfirmHelp,
+		m.confirmationButtons(m.label("信任并验证连接", "Trust and verify")),
 	}
 }
 
@@ -817,7 +911,7 @@ func (m *Model) renderTargetDeleteConfirmation() []string {
 		"",
 		m.msg.DeleteConfirmWarning,
 		"",
-		m.msg.DeleteConfirmHelp,
+		m.confirmationButtons(m.label("删除目标", "Delete target")),
 	}
 }
 
@@ -840,13 +934,13 @@ func (m *Model) renderMaintenance() []string {
 		if field.secret && value != "" {
 			value = m.msg.SecretMasked
 		}
-		if index == m.maintenance.index {
+		if index == m.maintenance.index && m.formButton == 0 {
 			lines = append(lines, "> "+m.input.View())
 		} else {
 			lines = append(lines, "  "+field.label+m.msg.FieldSeparator+value)
 		}
 	}
-	lines = append(lines, "", m.msg.MaintenanceHelpFull)
+	lines = append(lines, "", m.formButtons(), m.label("Tab 选择字段和按钮 · Enter 确认 · Esc 返回", "Tab fields and buttons · Enter confirm · Esc back"))
 	return lines
 }
 
@@ -876,12 +970,19 @@ func (m *Model) beginSSHForm(target store.SSHTarget) {
 		{label: m.msg.SSHFieldEnvironment, value: target.Environment},
 		{label: m.msg.SSHFieldAllowFile, value: strconv.FormatBool(target.AllowFileOperations), hint: m.msg.SSHFieldAllowFileHint},
 	}
+	auth := target.AuthMethod
+	if auth == "" {
+		auth = "password"
+	}
+	fields = append(fields, formField{label: m.label("认证方式", "Authentication"), value: auth, hint: m.label("← → 选择密码或私钥", "← → choose password or private key")}, formField{label: m.label("私钥路径", "Private key path"), value: target.PrivateKeyPath, hint: m.label("例如 ~/.ssh/id_ed25519；口令会在需要时单独询问", "For example ~/.ssh/id_ed25519; passphrase requested when needed")})
+	m.formButton = 0
 	m.form = &targetForm{kind: formSSH, enabled: target.Enabled, ssh: &target, fields: fields}
 	m.screen = screenForm
 	m.loadCurrentField()
 }
 
 func (m *Model) beginDatabaseForm(instance store.DatabaseInstance) {
+	m.formButton = 0
 	port := instance.Port
 	if port == 0 {
 		port = 3306
@@ -943,6 +1044,7 @@ func (m *Model) beginTargetDelete() {
 			method: "target.delete_ssh",
 			params: control.DeleteSSHTargetParams{IP: target.IP},
 		}
+		m.confirmAccept = false
 		m.screen = screenTargetDeleteConfirm
 		return
 	}
@@ -954,12 +1056,13 @@ func (m *Model) beginTargetDelete() {
 			method: "target.delete_database",
 			params: control.DeleteDatabaseInstanceParams{Host: instance.Host, Port: instance.Port},
 		}
+		m.confirmAccept = false
 		m.screen = screenTargetDeleteConfirm
 	}
 }
 
 func (m *Model) submitForm() tea.Cmd {
-	if m.form == nil {
+	if m.form == nil || m.pending != nil {
 		return nil
 	}
 	if !m.status.Unlocked {
@@ -984,9 +1087,12 @@ func (m *Model) submitForm() tea.Cmd {
 		}
 		params := control.UpsertSSHTargetParams{Target: store.SSHTarget{
 			IP: value(0), Mode: store.SSHDirect, SSHPort: port, LoginUsername: value(2),
-			CredentialID: credentialID, CommandBlacklistPatterns: commaSeparated(value(4)),
+			AuthMethod: value(8), PrivateKeyPath: value(9), CredentialID: credentialID, CommandBlacklistPatterns: commaSeparated(value(4)),
 			Description: value(5), Environment: value(6), AllowFileOperations: allowFileOperations, Enabled: m.form.enabled,
 		}, Password: value(3)}
+		if params.Target.AuthMethod == "private_key" {
+			params.Password = ""
+		}
 		m.form.fields[3].value = ""
 		return m.beginTargetTest("ssh.test_target", control.SSHTestParams{Target: params.Target, Password: params.Password}, "target.upsert_ssh", params)
 	}
@@ -1101,6 +1207,7 @@ func (m *Model) clearForm() {
 		}
 	}
 	m.form = nil
+	m.formButton = 0
 	m.input.SetValue("")
 }
 
@@ -1142,6 +1249,7 @@ func (m *Model) beginMaintenance(action maintenanceAction) {
 	case maintenanceChangeMasterPassword:
 		form.fields = []formField{{label: m.msg.MaintenanceFieldCurrentPassword, secret: true}, {label: m.msg.MaintenanceFieldNewPassword, secret: true}}
 	}
+	m.formButton = 0
 	m.maintenance = form
 	m.screen = screenMaintenance
 	m.loadMaintenanceField()

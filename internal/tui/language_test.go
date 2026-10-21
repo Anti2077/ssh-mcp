@@ -34,7 +34,7 @@ func TestTUILanguageToggle(t *testing.T) {
 		t.Fatalf("initial lang = %q, want zh", model.lang)
 	}
 	view := model.View().Content
-	if !strings.Contains(view, "e 语言") || !strings.Contains(view, "本地控制台") {
+	if !strings.Contains(view, "切换语言") || !strings.Contains(view, "本地控制台") {
 		t.Fatalf("initial dashboard does not contain Chinese text: %s", view)
 	}
 
@@ -58,7 +58,7 @@ func TestTUILanguageToggle(t *testing.T) {
 	}
 
 	view = model.View().Content
-	if !strings.Contains(view, "e Lang") || !strings.Contains(view, "ssh-mcp Console") {
+	if !strings.Contains(view, "Language /") || !strings.Contains(view, "ssh-mcp Console") {
 		t.Fatalf("after toggle to English, view does not contain English text: %s", view)
 	}
 
@@ -112,7 +112,7 @@ func TestTUIEnglishRenderingAndLayout(t *testing.T) {
 
 	// 1. Dashboard
 	dashboardView := model.View().Content
-	if !strings.Contains(dashboardView, "u Unlock") || !strings.Contains(dashboardView, "t Targets") || !strings.Contains(dashboardView, "e Lang") {
+	if !strings.Contains(dashboardView, "Unlock credentials") || !strings.Contains(dashboardView, "Servers and databases") || !strings.Contains(dashboardView, "Language /") {
 		t.Fatalf("English dashboard missing keys: %s", dashboardView)
 	}
 	for _, line := range strings.Split(dashboardView, "\n") {
@@ -128,7 +128,7 @@ func TestTUIEnglishRenderingAndLayout(t *testing.T) {
 		Databases: []store.DatabaseInstance{{Host: "192.0.2.20", Port: 3306, Engine: store.EngineMySQL, Enabled: false}},
 	}
 	targetsView := model.View().Content
-	if !strings.Contains(targetsView, "Targets") || !strings.Contains(targetsView, "n Add SSH") || !strings.Contains(targetsView, "d Add DB") {
+	if !strings.Contains(targetsView, "Targets") || !strings.Contains(targetsView, "Add SSH") || !strings.Contains(targetsView, "Add database") {
 		t.Fatalf("English targets view missing keys: %s", targetsView)
 	}
 	for _, line := range strings.Split(targetsView, "\n") {
@@ -165,7 +165,7 @@ func TestTUIEnglishRenderingAndLayout(t *testing.T) {
 	model.pending = &pendingTargetSave{fingerprint: "SHA256:test-fingerprint"}
 	model.screen = screenFingerprintConfirm
 	fpView := model.View().Content
-	if !strings.Contains(fpView, "SSH Host Fingerprint Confirmation") || !strings.Contains(fpView, "y Confirm & Test") {
+	if !strings.Contains(fpView, "SSH Host Fingerprint Confirmation") || !strings.Contains(fpView, "Trust and verify") {
 		t.Fatalf("English fingerprint view missing keys: %s", fpView)
 	}
 
@@ -173,7 +173,7 @@ func TestTUIEnglishRenderingAndLayout(t *testing.T) {
 	model.deleting = &pendingTargetDelete{label: "SSH 192.0.2.10"}
 	model.screen = screenTargetDeleteConfirm
 	delView := model.View().Content
-	if !strings.Contains(delView, "Delete Target") || !strings.Contains(delView, "y Delete") {
+	if !strings.Contains(delView, "Delete Target") || !strings.Contains(delView, "Delete target") {
 		t.Fatalf("English delete view missing keys: %s", delView)
 	}
 
@@ -181,7 +181,7 @@ func TestTUIEnglishRenderingAndLayout(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 36, Height: 12})
 	model.screen = screenDashboard
 	compactView := model.View().Content
-	if !strings.Contains(compactView, "u Unlock  t Targets  e Lang  q Quit") {
+	if !strings.Contains(compactView, "Unlock credentials") {
 		t.Fatalf("English compact dashboard view = %s", compactView)
 	}
 	for _, line := range strings.Split(compactView, "\n") {

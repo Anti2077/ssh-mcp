@@ -91,7 +91,7 @@ When a hard guardrail is triggered, `ssh-mcp` returns the `rule_id`, `matched_fr
 
 ## 4. SSH Host Key Pinning & MITM Defense
 
-- **First-Time Pinning**: During initial target registration in the TUI, `ssh-mcp` connects and retrieves the server's public key fingerprint. The operator must explicitly verify and accept it (`y`).
+- **First-Time Pinning**: During initial target registration in the TUI, `ssh-mcp` connects and retrieves the server's public key fingerprint. The operator must explicitly verify and select Trust and verify and press Enter.
 - **Strict Verification**: Subsequent SSH connections verify the remote key against the pinned fingerprint. Any mismatch terminates the connection immediately.
 - **No Blind Trust**: Host fingerprint mismatches can only be re-accepted after deliberate review in the TUI.
 
@@ -113,3 +113,5 @@ File deployments follow a multi-stage atomic pipeline:
 
 - **Master Password Encryption**: Sensitive secrets are encrypted using a derived data key. Keys are held in volatile memory only while unlocked and scrubbed upon lock or exit.
 - **Local Audit Log (`audit.log`)**: Capacity-capped local JSONL file recording target IDs, timestamps, rule evaluations, and execution statuses. Sensitive command payloads and file contents are sanitized.
+
+Private-key files are read only by the local daemon. Unlocked signers are cached in memory until lock or exit. Passphrases travel through authenticated local control IPC; no MCP tool accepts key passphrases or unlocks keys. See [details](private-key-auth.md).

@@ -93,6 +93,9 @@ const (
 )
 
 type SSHTarget struct {
+	// Authentication is password (the migration default) or private_key.
+	AuthMethod               string
+	PrivateKeyPath           string
 	IP                       string
 	Mode                     SSHMode
 	SSHPort                  int

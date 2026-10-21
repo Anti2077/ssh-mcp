@@ -24,6 +24,7 @@ import (
 	"ssh-mcp/internal/dbservice"
 	"ssh-mcp/internal/dbtransport"
 	"ssh-mcp/internal/policy"
+	"ssh-mcp/internal/sshservice"
 	"ssh-mcp/internal/sshtransport"
 	"ssh-mcp/internal/store"
 	"ssh-mcp/internal/worksession"
@@ -676,6 +677,10 @@ func (e *Engine) ReadSSHFile(ctx context.Context, request SSHFileReadRequest) (R
 	startedAt := e.deps.Now()
 	remote, readErr := e.deps.FileReader.ReadFile(execution, vault, target, path, request.Offset, maxBytes)
 	if readErr != nil {
+		if errors.Is(readErr, sshservice.ErrKeyUnlockRequired) {
+			auditErr := e.auditFileReadTerminal(ctx, requestID, target.IP, request, decision, StatusUnlockRequired, nil, nil, false)
+			return e.keyUnlockResult(auditFailed || auditErr != nil), nil
+		}
 		remoteExecuted := !errors.Is(readErr, sshtransport.ErrNotDispatched) && !errors.Is(readErr, store.ErrTargetChanged)
 		status := StatusOutcomeUnknown
 		if !remoteExecuted {
@@ -831,6 +836,10 @@ func (e *Engine) DeploySSHBinary(ctx context.Context, request SSHBinaryDeploymen
 		RemotePath: deployment.RemotePath, ExpectedSize: metadata.Size, ExpectedSHA256: metadata.SHA256, MaxBytes: maxBytes,
 	})
 	if deployErr != nil {
+		if errors.Is(deployErr, sshservice.ErrKeyUnlockRequired) {
+			auditErr := e.auditDeploymentTerminal(ctx, requestID, target.IP, request, deployment, metadata, decision, StatusUnlockRequired, nil, nil)
+			return e.keyUnlockResult(auditFailed || auditErr != nil), nil
+		}
 		remoteExecuted := !errors.Is(deployErr, sshtransport.ErrNotDispatched) && !errors.Is(deployErr, store.ErrTargetChanged)
 		status := StatusOutcomeUnknown
 		if !remoteExecuted {
@@ -1110,7 +1119,7 @@ func (e *Engine) auditDeploymentTerminal(ctx context.Context, requestID, target 
 	if status != StatusCompleted {
 		phase = auditlog.PhaseFailed
 	}
-	return e.auditDeploymentEvent(ctx, auditlog.Event{Time: clock.InBeijing(e.deps.Now()), OperationID: requestID, Phase: phase, RemoteExecuted: status != StatusNotDispatched, Target: auditlog.Target{Kind: "ssh", ID: target}, Actor: e.deps.AuditActor, Policy: auditlog.Policy{Version: policy.Version, Decision: string(decision.Decision), Reason: string(decision.Reason)}, Result: auditlog.Result{Status: status, DurationMS: duration}}, request, deployment, metadata, output)
+	return e.auditDeploymentEvent(ctx, auditlog.Event{Time: clock.InBeijing(e.deps.Now()), OperationID: requestID, Phase: phase, RemoteExecuted: status != StatusNotDispatched && status != StatusUnlockRequired, Target: auditlog.Target{Kind: "ssh", ID: target}, Actor: e.deps.AuditActor, Policy: auditlog.Policy{Version: policy.Version, Decision: string(decision.Decision), Reason: string(decision.Reason)}, Result: auditlog.Result{Status: status, DurationMS: duration}}, request, deployment, metadata, output)
 }
 
 func isCanonicalFileReadPath(value string) bool {
@@ -1214,7 +1223,7 @@ func (e *Engine) auditFileReadTerminal(ctx context.Context, requestID, target st
 	if status != StatusCompleted {
 		phase = auditlog.PhaseFailed
 	}
-	return e.auditFileReadEvent(ctx, auditlog.Event{Time: clock.InBeijing(e.deps.Now()), OperationID: requestID, Phase: phase, RemoteExecuted: status != StatusNotDispatched, Target: auditlog.Target{Kind: "ssh", ID: target}, Actor: e.deps.AuditActor, Policy: auditlog.Policy{Version: policy.Version, Decision: string(decision.Decision), Reason: string(decision.Reason)}, Result: auditlog.Result{Status: status, DurationMS: duration, OutputTruncated: truncated}}, request, bytesRead)
+	return e.auditFileReadEvent(ctx, auditlog.Event{Time: clock.InBeijing(e.deps.Now()), OperationID: requestID, Phase: phase, RemoteExecuted: status != StatusNotDispatched && status != StatusUnlockRequired, Target: auditlog.Target{Kind: "ssh", ID: target}, Actor: e.deps.AuditActor, Policy: auditlog.Policy{Version: policy.Version, Decision: string(decision.Decision), Reason: string(decision.Reason)}, Result: auditlog.Result{Status: status, DurationMS: duration, OutputTruncated: truncated}}, request, bytesRead)
 }
 
 func rawSSHSessionStateChange(command string) bool {
@@ -1434,6 +1443,10 @@ func (e *Engine) executeSSH(ctx context.Context, target store.SSHTarget, vault *
 		remote, err = e.deps.SSH.Execute(execution, vault, target, remoteCommand, asRoot, decision.MaxBytes)
 	}
 	if err != nil {
+		if errors.Is(err, sshservice.ErrKeyUnlockRequired) {
+			auditErr := e.auditFinalTerminal(ctx, requestID, "ssh", target.IP, payload, decision, auditlog.PhaseFailed, auditlog.Result{Status: StatusUnlockRequired})
+			return e.keyUnlockResult(auditFailed || auditErr != nil), nil
+		}
 		remoteExecuted := remoteExecutionStarted(err)
 		var duration *int64
 		if remoteExecuted {
@@ -2208,7 +2221,7 @@ func (e *Engine) auditFinal(ctx context.Context, requestID, targetKind, targetID
 		Time:           clock.InBeijing(e.deps.Now()),
 		OperationID:    requestID,
 		Phase:          phase,
-		RemoteExecuted: true,
+		RemoteExecuted: result.Status != StatusNotDispatched && result.Status != StatusUnlockRequired,
 		Action:         auditAction(targetKind, sshCommand, sqlStatement, payload),
 		Actor:          e.deps.AuditActor,
 		Target:         auditlog.Target{Kind: targetKind, ID: targetID},
@@ -2413,3 +2426,9 @@ func cloneRows(rows [][]string) [][]string {
 }
 
 var _ DatabaseService = (*dbservice.Service)(nil)
+
+func (e *Engine) keyUnlockResult(auditFailed bool) Result {
+	return markAuditFailed(Result{Status: StatusUnlockRequired, ExecutionOutcome: StatusNotDispatched,
+		AuditOutcome: AuditOutcomeRecorded, FailureKind: "ssh_key_unlock_required",
+		Message: "Unlock the SSH private key in the local console (run ssh-mcp manage if it does not open), then submit a new request. No remote command was dispatched.", RemoteExecuted: false}, auditFailed)
+}

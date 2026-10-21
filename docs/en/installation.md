@@ -12,7 +12,7 @@ This document provides detailed instructions on downloading, compiling, and runn
 | :--- | :--- |
 | **Local Host OS** | Linux, macOS, Windows |
 | **Default Release Targets** | Linux amd64, macOS arm64 (Apple Silicon), Windows amd64 |
-| **Remote SSH Targets** | Linux command semantics; direct IP/password connections |
+| **Remote SSH Targets** | Linux command semantics; direct IP connections with passwords or private keys |
 | **Databases** | MySQL 5.7+ / 8.0+, MariaDB 10.3+, PostgreSQL 12+ |
 
 The project is developed with Go `1.26.5` (as pinned in `go.mod`). `ssh-mcp` does not require any cloud accounts, API keys from third-party model providers, nor does it open any public HTTP, TCP, or remote listening ports.

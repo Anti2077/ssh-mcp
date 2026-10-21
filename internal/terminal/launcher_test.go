@@ -67,7 +67,7 @@ func TestResolveDarwinUsesAppleScriptTerminalLauncher(t *testing.T) {
 	if len(started.Args) != 3 || started.Args[1] != "-e" {
 		t.Fatalf("osascript args = %#v", started.Args)
 	}
-	wantScript := `tell application "Terminal" to do script "env 'DISPLAY=:1' '/Applications/ssh mcp' 'tui' 'a'\"'\"'b'"`
+	wantScript := `tell application "Terminal"` + "\nactivate\ndo script " + `"env 'DISPLAY=:1' '/Applications/ssh mcp' 'tui' 'a'\"'\"'b'"` + "\nend tell"
 	if started.Args[2] != wantScript {
 		t.Fatalf("osascript script = %q, want %q", started.Args[2], wantScript)
 	}

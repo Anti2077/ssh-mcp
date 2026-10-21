@@ -250,12 +250,10 @@ func TestAdaptersRejectOversizedFrameBeforeHandler(t *testing.T) {
 				t.Fatalf("连接服务失败：%v", err)
 			}
 			defer connection.Close()
-			if _, err := connection.Write(frame); err != nil {
-				t.Fatalf("写入超限帧失败：%v", err)
-			}
-			if err := connection.CloseWrite(); err != nil {
-				t.Fatalf("关闭超限帧写入端失败：%v", err)
-			}
+			// The server may close its read side as soon as the size limit is reached.
+			// Verify its response and lack of handler dispatch below.
+			_, _ = connection.Write(frame)
+			_ = connection.CloseWrite() // Peer may already have rejected and closed the frame.
 			var response struct {
 				Error *struct {
 					Code string `json:"code"`

@@ -31,7 +31,7 @@ import (
 func TestRuntimeServesAuthenticatedLocalControlAndCleansUp(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -74,7 +74,7 @@ func TestRuntimeServesAuthenticatedLocalControlAndCleansUp(t *testing.T) {
 func TestRuntimeRejectsUnauthenticatedControlCalls(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -181,7 +181,7 @@ func TestRuntimeInvalidatesControlTokenWhenTUIEnds(t *testing.T) {
 
 func newStartedRuntime(t *testing.T, options RuntimeOptions) *Runtime {
 	t.Helper()
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -255,7 +255,7 @@ func assertBridgeEndpointClosed(t *testing.T, endpoint string) {
 func TestRuntimePrepareForceStopRecordsUnknownOutcome(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -284,7 +284,7 @@ func TestRuntimeSSHIntegration(t *testing.T) {
 		t.Skip("direct SSH integration environment is not configured")
 	}
 
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -383,7 +383,7 @@ func runtimeSSHIntegrationEnvironment(t *testing.T) (host string, port int, user
 }
 
 func TestRuntimeRejectsSecondInstanceForSameStateDirectory(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -405,7 +405,7 @@ func TestRuntimeRejectsSecondInstanceForSameStateDirectory(t *testing.T) {
 }
 
 func TestRuntimeClosesIsolatedConnectionsOnLockSessionInvalidationAndShutdown(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -466,7 +466,7 @@ func TestRuntimeClosesIsolatedConnectionsOnLockSessionInvalidationAndShutdown(t 
 }
 
 func TestRuntimeLockSuspendsDirectDiagnosticsBeforeLockingVault(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -531,7 +531,7 @@ func TestRuntimeLockSuspendsDirectDiagnosticsBeforeLockingVault(t *testing.T) {
 }
 
 func TestRuntimeBridgeCancellationStopsAbandonedSSHRequest(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -756,7 +756,7 @@ func sessionCount(t *testing.T, path string) int {
 }
 
 func TestDaemonServesMultipleBridgeClientsWithoutSharingSQLite(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -795,7 +795,7 @@ func TestDaemonServesMultipleBridgeClientsWithoutSharingSQLite(t *testing.T) {
 }
 
 func TestDaemonStatusExcludesItsTemporaryBridgeConnection(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -821,7 +821,7 @@ func TestDaemonStatusExcludesItsTemporaryBridgeConnection(t *testing.T) {
 }
 
 func TestConnectOrStartDaemonRequiresHealthyBridge(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -846,7 +846,7 @@ func TestConnectOrStartDaemonRequiresHealthyBridge(t *testing.T) {
 }
 
 func TestConnectOrStartDaemonReturnsDaemonStartupFailure(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -897,7 +897,7 @@ func TestWaitForDaemonStartupAcceptsReadyAndReportsChildFailure(t *testing.T) {
 }
 
 func TestBridgeListTargetsReturnsWithoutTUISessionApproval(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -935,7 +935,7 @@ func TestBridgeListTargetsReturnsWithoutTUISessionApproval(t *testing.T) {
 }
 
 func TestBridgeRejectsRemovedLegacyExecutionMethods(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -963,7 +963,7 @@ func TestBridgeRejectsRemovedLegacyExecutionMethods(t *testing.T) {
 }
 
 func TestExclusiveMaintenanceRejectsActiveBridgeSessions(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1009,7 +1009,7 @@ func TestExclusiveMaintenanceRejectsActiveBridgeSessions(t *testing.T) {
 }
 
 func TestUnregisteredTargetOpensTUIAndReturnsStructuredStatusImmediately(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1038,7 +1038,7 @@ func TestUnregisteredTargetOpensTUIAndReturnsStructuredStatusImmediately(t *test
 }
 
 func TestUnregisteredDatabaseOpensTUIAndReturnsStructuredStatusImmediately(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1099,7 +1099,7 @@ func TestAuditBridgeTargetDecisionRetainsTargetStatusWhenAuditWriteFails(t *test
 }
 
 func TestDaemonStopsAfterConfiguredBridgeIdleTimeout(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1133,7 +1133,7 @@ func TestRuntimeDefersShutdownUntilBridgeResponseCompletes(t *testing.T) {
 }
 
 func TestRuntimeWaitForIdleIgnoresIdleBridgeSession(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1160,7 +1160,7 @@ func TestRuntimeWaitForIdleIgnoresIdleBridgeSession(t *testing.T) {
 }
 
 func TestRuntimeWaitForIdleResetsForActualBridgeRequest(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1202,7 +1202,7 @@ func TestRuntimeWaitForIdleResetsForActualBridgeRequest(t *testing.T) {
 }
 
 func TestRuntimeWaitForIdleWaitsForConnectedTUI(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1241,7 +1241,7 @@ func TestRuntimeWaitForIdleWaitsForConnectedTUI(t *testing.T) {
 }
 
 func TestBridgeOpenTUIWaitsForConnection(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1274,7 +1274,7 @@ func TestBridgeOpenTUIWaitsForConnection(t *testing.T) {
 }
 
 func TestBridgeOpenTUIPersistsDesktopEnvironment(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1321,7 +1321,7 @@ func TestBridgeOpenTUIPersistsDesktopEnvironment(t *testing.T) {
 }
 
 func TestBridgeOpenTUIReportsConnectionTimeout(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1352,7 +1352,7 @@ func TestBridgeOpenTUIReportsConnectionTimeout(t *testing.T) {
 }
 
 func TestRunManageReturnsAfterTUIConnection(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1380,7 +1380,7 @@ func TestRunManageReturnsAfterTUIConnection(t *testing.T) {
 }
 
 func TestRuntimeOpenTUIAndWaitReportsMissingConnection(t *testing.T) {
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1404,7 +1404,7 @@ func TestRuntimeOpenTUIAndWaitReportsMissingConnection(t *testing.T) {
 func TestRuntimeUsesFileAuditInsteadOfSQLiteAuditTable(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
+	base := shortRuntimeDir(t)
 	roots, err := paths.Prepare(filepath.Join(base, "config"), filepath.Join(base, "runtime"))
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
@@ -1417,4 +1417,14 @@ func TestRuntimeUsesFileAuditInsteadOfSQLiteAuditTable(t *testing.T) {
 	if runtime.audit.Path() != filepath.Join(roots.ConfigDir, "audit.log") {
 		t.Fatalf("audit path = %q", runtime.audit.Path())
 	}
+}
+
+func shortRuntimeDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sm-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }

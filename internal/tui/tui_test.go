@@ -102,7 +102,7 @@ func TestInputReportsCursorAtRenderedInputLine(t *testing.T) {
 	if got, want := view.Cursor.Position.X, lipgloss.Width(inputLinePrefix)+lipgloss.Width(model.input.Prompt)+6; got != want {
 		t.Fatalf("form cursor x = %d, want %d", got, want)
 	}
-	if got, want := view.Cursor.Position.Y, 7; got != want {
+	if got, want := view.Cursor.Position.Y, 8; got != want {
 		t.Fatalf("form cursor y = %d, want %d", got, want)
 	}
 
@@ -123,7 +123,7 @@ func TestDashboardDescribesUKeyAsUnlock(t *testing.T) {
 	t.Parallel()
 
 	view := NewModel(nil).View().Content
-	if !strings.Contains(view, "u 解锁") {
+	if !strings.Contains(view, "解锁凭据库") {
 		t.Fatalf("dashboard does not describe u as unlock: %s", view)
 	}
 	if strings.Contains(view, "切换会话") {
@@ -608,7 +608,7 @@ func TestTargetDeleteUsesSingleConfirmationAndRefreshesList(t *testing.T) {
 	if command := model.handleTargetKey("delete"); command != nil || model.screen != screenTargetDeleteConfirm {
 		t.Fatalf("after Delete screen = %v, command = %v", model.screen, command)
 	}
-	if !strings.Contains(model.View().Content, "192.0.2.10") || !strings.Contains(model.View().Content, "y 删除") {
+	if !strings.Contains(model.View().Content, "192.0.2.10") || !strings.Contains(model.View().Content, "删除目标") {
 		t.Fatalf("delete confirmation view = %s", model.View().Content)
 	}
 

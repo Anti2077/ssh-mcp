@@ -29,6 +29,7 @@ type Endpoint struct {
 	Username    string
 	Password    []byte
 	Fingerprint string
+	Signer      ssh.Signer
 }
 
 type Client struct {
@@ -66,7 +67,7 @@ func ProbeHostKey(ctx context.Context, endpoint Endpoint) (string, error) {
 	var fingerprint string
 	config := &ssh.ClientConfig{
 		User: endpoint.Username,
-		Auth: []ssh.AuthMethod{ssh.Password(string(endpoint.Password))},
+		Auth: nil,
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			fingerprint = ssh.FingerprintSHA256(key)
 			return errHostKeyCollected
@@ -89,7 +90,7 @@ func Dial(ctx context.Context, endpoint Endpoint) (*Client, error) {
 	}
 	config := &ssh.ClientConfig{
 		User:            endpoint.Username,
-		Auth:            []ssh.AuthMethod{ssh.Password(string(endpoint.Password))},
+		Auth:            endpointAuth(endpoint),
 		HostKeyCallback: hostKeyCallback(endpoint.Fingerprint),
 	}
 	connection, channels, requests, err := newClientConn(ctx, rawConnection, endpointAddress(endpoint), config)
@@ -196,7 +197,7 @@ func shellQuote(value string) string {
 
 func validateEndpoint(endpoint Endpoint, requireFingerprint bool) error {
 	if _, err := netip.ParseAddr(endpoint.Host); err != nil || endpoint.Port < 1 || endpoint.Port > 65535 ||
-		strings.TrimSpace(endpoint.Username) == "" || len(endpoint.Password) == 0 ||
+		strings.TrimSpace(endpoint.Username) == "" || (len(endpoint.Password) == 0 && endpoint.Signer == nil) ||
 		(requireFingerprint && strings.TrimSpace(endpoint.Fingerprint) == "") {
 		return ErrInvalidEndpoint
 	}
@@ -312,3 +313,10 @@ func (b *outputBudget) Truncated() bool {
 }
 
 var errHostKeyCollected = errors.New("SSH host key fingerprint collected")
+
+func endpointAuth(endpoint Endpoint) []ssh.AuthMethod {
+	if endpoint.Signer != nil {
+		return []ssh.AuthMethod{ssh.PublicKeys(endpoint.Signer)}
+	}
+	return []ssh.AuthMethod{ssh.Password(string(endpoint.Password))}
+}

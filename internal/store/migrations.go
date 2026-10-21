@@ -174,6 +174,7 @@ var migrations = []migration{
 		version: 17,
 		apply:   removeLegacySSHFileConfiguration,
 	},
+	{version: 18, apply: addSSHAuthentication},
 }
 
 func addSSHFileReadRoots(ctx context.Context, tx *sql.Tx) error {
@@ -507,4 +508,14 @@ func repairDatabaseInstanceAccountColumns(ctx context.Context, tx *sql.Tx) error
 		}
 	}
 	return nil
+}
+
+func addSSHAuthentication(ctx context.Context, tx *sql.Tx) error {
+	return addColumnsIfTableExists(ctx, tx, "ssh_targets", []struct {
+		name       string
+		definition string
+	}{
+		{"auth_method", "TEXT NOT NULL DEFAULT 'password'"},
+		{"private_key_path", "TEXT NOT NULL DEFAULT ''"},
+	})
 }

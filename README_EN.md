@@ -1,5 +1,7 @@
 # ssh-mcp
 
+> Fork: [Anti2077/ssh-mcp](https://github.com/Anti2077/ssh-mcp). Adds private-key login, local passphrase unlocking, and keyboard menus. [Usage](docs/en/private-key-auth.md). Existing screenshots show the upstream UI.
+
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 
@@ -111,14 +113,9 @@ Launch the local console:
 ```bash
 ./bin/ssh-mcp manage
 ```
-Follow the on-screen keys:
-1. Press `u` to set a master password and unlock the credential vault (this initializes the local database on first run).
-2. (Optional) Press `e` on the dashboard to toggle between English and Chinese interface language. Your preference is automatically persisted in the local database.
-3. Press `t` to open the Targets list.
-4. Press `n` to add an SSH host, or `d` to add a database target.
-5. Enter target credentials and press `Ctrl+S`. `ssh-mcp` will test connectivity.
-6. For SSH hosts, verify the displayed host fingerprint and press `y` to confirm and pin it.
-7. Press `Esc` to return and `q` to exit.
+Use Up/Down or Tab to select **Unlock credentials**, then Enter. Select **Servers and databases**, then Tab to **Add SSH** or **Add database**. For SSH, choose password or private-key authentication. Tab to **Verify and save** and press Enter. Review the host fingerprint, select **Trust and verify**, then Enter. Use Esc to return; choose **Exit console** to quit.
+
+See [Private-key login and keyboard menus](docs/en/private-key-auth.md) for encrypted keys and local unlock behavior.
 
 ---
 
@@ -213,10 +210,10 @@ For detailed parameters, schemas, and return formats, see [MCP Tools Reference](
 | Category | Supported Features & Limits |
 | :--- | :--- |
 | **Local Host OS** | Linux (x86_64, arm64), macOS (Apple Silicon, Intel), Windows (x86_64) |
-| **Remote SSH Targets** | Linux OS semantics; IP address targets; password authentication; pinned host fingerprints |
+| **Remote SSH Targets** | Linux OS semantics; IP address targets; password or private-key authentication; pinned host fingerprints |
 | **Database Targets** | MySQL 5.7+ / 8.0+, MariaDB 10.3+, PostgreSQL 12+; TLS-verified or legacy plaintext |
 | **Transport** | MCP stdio; local inter-process communication via Unix domain sockets / named pipes |
-| **Out of Scope** | SSH private keys/agent forwarding, remote Windows/macOS semantics, interactive TTY, dynamic SSH tunnels (`-D`) |
+| **Out of Scope** | SSH agent forwarding, remote Windows/macOS semantics, interactive TTY, dynamic SSH tunnels (`-D`) |
 
 ---
 

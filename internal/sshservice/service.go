@@ -5,6 +5,7 @@ package sshservice
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -41,6 +42,7 @@ type Service struct {
 	transport Transport
 	executor  Executor
 	isolated  *isolatedConnectionPool
+	keys      keyCache
 }
 
 const controlledBinaryDeploymentSpecificationVersion = "controlled-binary-deployment-v1"
@@ -124,6 +126,13 @@ func (s *Service) endpoint(ctx context.Context, vault *store.Vault, target store
 	}
 	if target.Mode != store.SSHDirect {
 		return sshtransport.Endpoint{}, store.ErrInvalidTarget
+	}
+	if target.AuthMethod == "private_key" {
+		signer, err := s.keySigner(target.PrivateKeyPath, nil)
+		if err != nil {
+			return sshtransport.Endpoint{}, fmt.Errorf("%w: %w", sshtransport.ErrNotDispatched, err)
+		}
+		return sshtransport.Endpoint{Host: target.IP, Port: target.SSHPort, Username: target.LoginUsername, Signer: signer}, nil
 	}
 	if len(directPassword) == 0 {
 		password, err := vault.Credential(ctx, target.CredentialID)
@@ -251,6 +260,9 @@ func (s *Service) CloseTarget(target string) {
 
 // Suspend 先关闭隔离连接并废弃旧 lease，供锁定或密钥变更建立不可派发边界。
 func (s *Service) Suspend() error {
+	if s != nil {
+		s.clearKeys()
+	}
 	if s == nil || s.isolated == nil {
 		return nil
 	}
@@ -274,6 +286,9 @@ func (s *Service) CloseAll() error {
 
 // Close 永久关闭服务持有的隔离连接。
 func (s *Service) Close() error {
+	if s != nil {
+		s.clearKeys()
+	}
 	if s == nil || s.isolated == nil {
 		return nil
 	}

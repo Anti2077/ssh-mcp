@@ -209,7 +209,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	audit := auditlog.New(filepath.Join(roots.ConfigDir, auditlog.FileName))
 	controlService := control.NewService(credentialStore, manager, control.WithTargetAuthorizationRevoker(targetAuthorizationRevoker{
 		workSessions: workSessions, sshConnections: ssh, databaseAuthorizer: databaseAuthorizer,
-	}), control.WithAuditor(audit), control.WithAuditActor(auditlog.Actor{User: auditUser, Source: "tui-control"}), control.WithDispatchLeaseAcquirer(func() control.DispatchLease {
+	}), control.WithSSHService(ssh), control.WithAuditor(audit), control.WithAuditActor(auditlog.Actor{User: auditUser, Source: "tui-control"}), control.WithDispatchLeaseAcquirer(func() control.DispatchLease {
 		return dispatchBarrier.Acquire()
 	}))
 	socketPath := filepath.Join(roots.RuntimeDir, controlSockName)
@@ -246,6 +246,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	} else {
 		runtime.openTUI = runtime.OpenTUI
 	}
+	ssh.SetKeyUnlockOpener(runtime.requestTUI)
 	runtime.workSessions = workSessions
 	runtime.runner = runner.New(runner.Dependencies{
 		Targets: credentialStore, Sessions: manager,
@@ -466,6 +467,11 @@ func (r *Runtime) handleControl(ctx context.Context, method string, params json.
 			return result, nil
 		})
 		return result, err
+	case "ssh.unlock_key":
+		r.touchActivity(clock.Now())
+		r.sshLifecycleMu.Lock()
+		defer r.sshLifecycleMu.Unlock()
+		return r.control.Handle(ctx, method, params)
 	case "lock":
 		r.touchActivity(clock.Now())
 		if err := r.runner.LockDispatch(ctx); err != nil {
@@ -616,7 +622,9 @@ func (r *Runtime) handleBridge(ctx context.Context, bridgeSession bridge.Session
 		if active > 0 {
 			active--
 		}
-		return DaemonStatus{Running: true, Control: status.(control.Status), ActiveBridgeSessions: active}, nil
+		localStatus := status.(control.Status)
+		localStatus.PendingKeys = nil // Local key paths belong only to the authenticated console.
+		return DaemonStatus{Running: true, Control: localStatus, ActiveBridgeSessions: active}, nil
 	case bridgeMethodPrepareForceStop:
 		return r.prepareForceStop(ctx), nil
 	case bridgeMethodShutdown:
